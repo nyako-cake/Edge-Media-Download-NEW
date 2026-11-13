@@ -1,4 +1,4 @@
-name: build
+name: package
 
 on:
   push:
@@ -14,30 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Resolve version
+        id: version
+        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Build plugin bundle
-        run: npm run build
-
+      # 直接打包仓库内已提交的产物：dist 是手工维护的发布构建，
+      # js/ 尚未与之完全同步，这里不做 npm run build。
       - name: Pack Eagle plugin
         run: |
-          node -e "
-            const AdmZip = require('adm-zip');
-            const version = require('./package.json').version;
-            const zip = new AdmZip();
-            zip.addLocalFolder('Plugin');
-            zip.writeZip('Edge-Media-Download-NEW-v' + version + '.eagleplugin');
-          "
+          (cd Plugin && zip -qr "../Edge-Media-Download-NEW-v${{ steps.version.outputs.value }}.eagleplugin" .)
 
       - name: Pack Edge extension
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          cd edge-extension && zip -qr "../Edge-Media-Download-NEW-extension-v${VERSION}.zip" .
+          (cd edge-extension && zip -qr "../Edge-Media-Download-NEW-extension-v${{ steps.version.outputs.value }}.zip" .)
 
       - uses: actions/upload-artifact@v4
         with:
