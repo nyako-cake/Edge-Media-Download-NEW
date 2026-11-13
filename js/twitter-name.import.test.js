@@ -78,7 +78,7 @@ assert.strictEqual(
 
 // 写坏的顺序（重复项、未知字段）读取时被校正，不会把字段弄丢
 global.localStorage.setItem(
-  "eagle-video-downloader.twitterName",
+  "Edge-Media-Download-NEW.twitterName",
   JSON.stringify({ text: true, order: ["screenName", "screenName", "bogus"] })
 );
 assert.deepStrictEqual(plugin.getTwitterNamePrefs().order, ["screenName", "authorId", "tweetId", "text", "name"]);

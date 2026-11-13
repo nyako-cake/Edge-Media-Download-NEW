@@ -3,7 +3,7 @@
  * 失败的队列条目写进 localStorage，关窗重开仍在；成功下载或手动删除后移除。
  */
 
-const STORAGE_KEY = "eagle-video-downloader.downloadErrors";
+const STORAGE_KEY = "Edge-Media-Download-NEW.downloadErrors";
 const LIMIT = 80;
 
 function readAll() {

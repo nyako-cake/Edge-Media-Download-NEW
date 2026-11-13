@@ -1,19 +1,4 @@
-(function () {
-  try {
-    var OLD = "eagle-video-downloader.";
-    var NEW = "Edge-Media-Download-NEW.";
-    for (var i = localStorage.length - 1; i >= 0; i--) {
-      var k = localStorage.key(i);
-      if (k && k.indexOf(OLD) === 0) {
-        var nk = NEW + k.slice(OLD.length);
-        if (localStorage.getItem(nk) === null)
-          localStorage.setItem(nk, localStorage.getItem(k));
-        localStorage.removeItem(k);
-      }
-    }
-  } catch (e) {
-  }
-})();var __defProp = Object.defineProperty;
+var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
@@ -5388,7 +5373,7 @@ var require_downloader = __commonJS({
       }
     }
     function getTempDir() {
-      const tempDir = path.join(os.tmpdir(), "Edge-Media-Download-NEW");
+      const tempDir = path.join(os.tmpdir(), "eagle-video-downloader");
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
@@ -10790,7 +10775,7 @@ var require_twitter_monitor = __commonJS({
               };
               waiting.set(url, finish);
               setTimeout(() => finish("timeout"), 8e3);
-              document.dispatchEvent(new CustomEvent("startDownload", { detail: { url, from, scrape: true } }));
+              document.dispatchEvent(new CustomEvent("startDownload", { detail: { url, from } }));
             })
           );
         }
@@ -12708,7 +12693,7 @@ var require_zh_CN = __commonJS({
         }
       },
       ui: {
-        appTitle: "\u89C6\u9891\u4E0B\u8F7D\u5668",
+        appTitle: "\u5A92\u4F53\u4E0B\u8F7D\u5668",
         inputPlaceholder: "\u7C98\u8D34\u4EFB\u610F\u89C6\u9891\u94FE\u63A5...",
         downloadBtn: "\u4E0B\u8F7D",
         downloadingBtn: "\u4E0B\u8F7D\u4E2D...",
@@ -13196,7 +13181,7 @@ function ensureAudioEl() {
     __evdAudioEl = new Audio();
     __evdAudioEl.preload = "auto";
     __evdAudioEl.volume = 0.9;
-    __evdAudioEl.addEventListener("ended", function () {
+    __evdAudioEl.addEventListener("ended", function() {
       __evdSoundPlaying = false;
     });
   }
@@ -13279,13 +13264,14 @@ function playDownloadAddedSound(force) {
       setCustomSoundFile("");
       const label = document.getElementById("customSoundName");
       if (label) {
-        label.textContent = "默认音效";
-        label.title = "敲敲.wav";
+        label.textContent = "\u9ED8\u8BA4\u97F3\u6548";
+        label.title = "\u6572\u6572.wav";
       }
       playDownloadAddedSound(true);
     }
   });
-}document.addEventListener("pointerdown", function unlockSound() {
+}
+document.addEventListener("pointerdown", function unlockSound() {
   ensureSoundContext();
   document.removeEventListener("pointerdown", unlockSound);
 });
@@ -13314,7 +13300,6 @@ function setConcurrencyPref(value) {
   } catch (e) {
   }
 }
-var MAX_CONCURRENT = 3;
 var activeCount = 0;
 var queueIdCounter = 0;
 var queuePaused = false;
@@ -13644,8 +13629,8 @@ function setupEventListeners() {
     if (!customSoundName)
       return;
     const custom = getCustomSoundFile();
-    customSoundName.textContent = custom ? soundFileName(custom) : "默认音效";
-    customSoundName.title = custom || "敲敲.wav";
+    customSoundName.textContent = custom ? soundFileName(custom) : "\u9ED8\u8BA4\u97F3\u6548";
+    customSoundName.title = custom || "\u6572\u6572.wav";
   }
   function pickCustomSoundFile() {
     const input = document.createElement("input");
@@ -14255,7 +14240,6 @@ async function addToQueue(url, from, scrape) {
     console.info("[queue] previously failed, skip from scrape:", url);
     return "skip";
   }
-
   const failed = downloadQueue.find((item2) => item2.state === "error" && item2.url === url);
   if (failed) {
     failed.state = "waiting";
@@ -14614,23 +14598,6 @@ function deleteDownloadItem(id) {
   errorLog.remove(url);
 }
 var WINDOW_SIZE_KEY = "evd.windowSize.v2";
-function getSavedWindowSize() {
-  try {
-    const raw = localStorage.getItem(WINDOW_SIZE_KEY);
-    if (!raw)
-      return null;
-    const size = JSON.parse(raw);
-    const width = Number(size && size.width);
-    const height = Number(size && size.height);
-    if (!Number.isFinite(width) || !Number.isFinite(height))
-      return null;
-    if (width < 320 || height < 320 || width > 4e3 || height > 4e3)
-      return null;
-    return { width: Math.round(width), height: Math.round(height) };
-  } catch (e) {
-    return null;
-  }
-}
 function saveWindowSize() {
   if (window.__evdApplyingWindowSize)
     return;
@@ -14640,10 +14607,10 @@ function saveWindowSize() {
       Promise.resolve(api.getSize()).then((current) => {
         if (window.__evdApplyingWindowSize)
           return;
-        const width = Math.round(Number(Array.isArray(current) ? current[0] : current && current.width));
-        const height = Math.round(Number(Array.isArray(current) ? current[1] : current && current.height));
-        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0)
-          localStorage.setItem(WINDOW_SIZE_KEY, JSON.stringify({ width, height }));
+        const width2 = Math.round(Number(Array.isArray(current) ? current[0] : current && current.width));
+        const height2 = Math.round(Number(Array.isArray(current) ? current[1] : current && current.height));
+        if (Number.isFinite(width2) && Number.isFinite(height2) && width2 > 0 && height2 > 0)
+          localStorage.setItem(WINDOW_SIZE_KEY, JSON.stringify({ width: width2, height: height2 }));
       }).catch(() => {
       });
       return;
@@ -14701,12 +14668,6 @@ function setShowSidebarAccount(value) {
   }
   applySidebarAccountVisibility();
 }
-function formatDownloadClock(timestamp) {
-  const date = new Date(Number(timestamp) || 0);
-  if (Number.isNaN(date.getTime()))
-    return "";
-  return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
-}
 function currentLibraryPath() {
   try {
     if (typeof eagle !== "undefined" && eagle && eagle.library && eagle.library.path)
@@ -14750,7 +14711,7 @@ function renderDownloadAccount() {
   } catch (e) {
   }
   const connected = !!(profile && profile.screenName);
-  nameEl.textContent = connected ? profile.name || profile.screenName : "未连接推特账号";
+  nameEl.textContent = connected ? profile.name || profile.screenName : "\u672A\u8FDE\u63A5\u63A8\u7279\u8D26\u53F7";
   const avatarUrl = connected ? profile.avatarData || profile.avatar || "" : "";
   if (avatarUrl) {
     avatarEl.style.backgroundImage = 'url("' + String(avatarUrl).replace(/"/g, "%22") + '")';
@@ -14766,7 +14727,7 @@ function renderDownloadAccount() {
 function setupDownloadAccountStrip() {
   applySidebarAccountVisibility();
   renderDownloadAccount();
-  window.setInterval(renderDownloadAccount, 3000);
+  window.setInterval(renderDownloadAccount, 3e3);
   const showToggle = document.getElementById("showSidebarAccountToggle");
   if (showToggle) {
     showToggle.checked = getShowSidebarAccount();

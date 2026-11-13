@@ -140,9 +140,9 @@ npm run package  # 构建并打包为 媒体下载器.eagleplugin
 
 源码在 `js/`，界面在 `Plugin/index.html`（内联样式）配合 `Plugin/native-skin.css`。项目使用 esbuild 打包，i18next 国际化，yt-dlp 负责视频提取，ffmpeg 由 Eagle 官方 FFmpeg 插件提供。
 
-`Plugin/dist/plugin.js` 是构建产物，已纳入版本控制，克隆后不构建也能直接把 `Plugin/` 导入 Eagle 运行。需要注意：当前产物由多轮手工改动累积而成，`js/` 尚未与它完全同步，重新执行 `npm run build` 会丢失部分功能，重建前请先核对差异。
+`Plugin/dist/plugin.js` 是构建产物，已纳入版本控制，克隆后不构建也能直接把 `Plugin/` 导入 Eagle 运行。每次改动 `js/` 后都要重新 `npm run build` 并一并提交更新后的 dist，否则仓库内的产物会与源码不同步。
 
-发布工作流（`.github/workflows/build.yml`）只打包仓库内已提交的 `Plugin/` 与 `edge-extension/`，不执行构建。
+发布工作流（`.github/workflows/build.yml`）会在推送 `v*` tag 时重新构建并打包插件与扩展。
 
 ## 数据与端口
 

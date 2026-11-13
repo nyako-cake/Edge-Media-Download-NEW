@@ -12,31 +12,31 @@ const { getJson, getRaw } = require("./x-http");
 const { scopedKey } = require("./library-context");
 const twitterDm = require("./twitter-dm");
 
-const SEEN_KEY = "eagle-video-downloader.twitterSeen";
-const ENABLED_KEY = "eagle-video-downloader.twitterMonitorEnabled";
-const INTERVAL_KEY = "eagle-video-downloader.twitterMonitorInterval";
-const INTERVAL_MS_KEY = "eagle-video-downloader.twitterMonitorIntervalMs";
+const SEEN_KEY = "Edge-Media-Download-NEW.twitterSeen";
+const ENABLED_KEY = "Edge-Media-Download-NEW.twitterMonitorEnabled";
+const INTERVAL_KEY = "Edge-Media-Download-NEW.twitterMonitorInterval";
+const INTERVAL_MS_KEY = "Edge-Media-Download-NEW.twitterMonitorIntervalMs";
 const MIN_INTERVAL_MS = 30000;
 /** 好友聊天单独节奏：2~10 分钟，步进 2 分钟 */
-const DM_INTERVAL_MS_KEY = "eagle-video-downloader.twitterDmIntervalMs";
-const DM_LAST_CHECK_KEY = "eagle-video-downloader.twitterDmLastCheckAt";
+const DM_INTERVAL_MS_KEY = "Edge-Media-Download-NEW.twitterDmIntervalMs";
+const DM_LAST_CHECK_KEY = "Edge-Media-Download-NEW.twitterDmLastCheckAt";
 /** 各来源最后一次抓取成功的时间，决定下一轮增量起点 */
-const LAST_LIKES_KEY = "eagle-video-downloader.twitterLastLikesAt";
-const LAST_BOOKMARKS_KEY = "eagle-video-downloader.twitterLastBookmarksAt";
+const LAST_LIKES_KEY = "Edge-Media-Download-NEW.twitterLastLikesAt";
+const LAST_BOOKMARKS_KEY = "Edge-Media-Download-NEW.twitterLastBookmarksAt";
 /** 每轮抓取成功的时间与结果，用于判断哪些是新一轮的链接 */
-const FETCH_LOG_KEY = "eagle-video-downloader.twitterFetchLog";
+const FETCH_LOG_KEY = "Edge-Media-Download-NEW.twitterFetchLog";
 const MAX_FETCH_LOG = 30;
 const MIN_DM_INTERVAL_MS = 120000;
 const DEFAULT_DM_INTERVAL_MINUTES = 2;
-const LIKES_KEY = "eagle-video-downloader.twitterMonitorLikes";
-const BOOKMARKS_KEY = "eagle-video-downloader.twitterMonitorBookmarks";
-const DM_KEY = "eagle-video-downloader.twitterMonitorDm";
-const DM_CHATS_KEY = "eagle-video-downloader.twitterDmChats";
-const CHAT_PASSCODE_KEY = "eagle-video-downloader.xchatPasscode";
-const CONVERSATIONS_KEY = "eagle-video-downloader.twitterDmConversations";
-const BASELINE_KEY = "eagle-video-downloader.twitterBaselineAt";
-const LAST_CHECK_KEY = "eagle-video-downloader.twitterLastCheckAt";
-const PROFILE_KEY = "eagle-video-downloader.twitterProfile";
+const LIKES_KEY = "Edge-Media-Download-NEW.twitterMonitorLikes";
+const BOOKMARKS_KEY = "Edge-Media-Download-NEW.twitterMonitorBookmarks";
+const DM_KEY = "Edge-Media-Download-NEW.twitterMonitorDm";
+const DM_CHATS_KEY = "Edge-Media-Download-NEW.twitterDmChats";
+const CHAT_PASSCODE_KEY = "Edge-Media-Download-NEW.xchatPasscode";
+const CONVERSATIONS_KEY = "Edge-Media-Download-NEW.twitterDmConversations";
+const BASELINE_KEY = "Edge-Media-Download-NEW.twitterBaselineAt";
+const LAST_CHECK_KEY = "Edge-Media-Download-NEW.twitterLastCheckAt";
+const PROFILE_KEY = "Edge-Media-Download-NEW.twitterProfile";
 
 const MAX_SEEN = 5000;
 const MAX_DOWNLOAD_PER_CYCLE = Number.MAX_SAFE_INTEGER;

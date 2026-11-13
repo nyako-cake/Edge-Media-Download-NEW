@@ -8,7 +8,7 @@
 
 const { scopedKey } = require("./library-context");
 
-const STORAGE_KEY = "eagle-video-downloader.sankakuAuth";
+const STORAGE_KEY = "Edge-Media-Download-NEW.sankakuAuth";
 
 function currentKey() {
   if (typeof localStorage === "undefined") return STORAGE_KEY;

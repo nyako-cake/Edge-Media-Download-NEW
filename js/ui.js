@@ -9,7 +9,7 @@ const twitterMonitor = require("./twitter-monitor");
 const twitterName = require("./twitter-name");
 const { scopedKey } = require("./library-context");
 
-const INTERVAL_CHOICE_KEY = "eagle-video-downloader.twitterIntervalChoice";
+const INTERVAL_CHOICE_KEY = "Edge-Media-Download-NEW.twitterIntervalChoice";
 
 /** 读取用户上次选择的时间选项（分钟），未选过返回 null */
 function getIntervalChoice() {
@@ -33,8 +33,8 @@ function setIntervalChoice(minutes) {
 /**
  * 主题：跟随 Eagle 或手动选择
  */
-const THEME_FOLLOW_KEY = "eagle-video-downloader.followEagleTheme";
-const THEME_KEY = "eagle-video-downloader.theme";
+const THEME_FOLLOW_KEY = "Edge-Media-Download-NEW.followEagleTheme";
+const THEME_KEY = "Edge-Media-Download-NEW.theme";
 const THEME_NAMES = ["light", "lightgray", "gray", "dark", "blue", "purple"];
 
 function getFollowEagleTheme() {

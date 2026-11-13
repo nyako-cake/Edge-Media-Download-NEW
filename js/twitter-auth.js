@@ -5,7 +5,7 @@
 
 const { scopedKey } = require("./library-context");
 
-const STORAGE_KEY = "eagle-video-downloader.twitterAuth";
+const STORAGE_KEY = "Edge-Media-Download-NEW.twitterAuth";
 
 // 公开的 Web 客户端 Bearer（网页端所有内部请求都用它）
 const PUBLIC_BEARER =

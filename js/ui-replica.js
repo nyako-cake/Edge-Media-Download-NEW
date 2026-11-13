@@ -10,9 +10,9 @@ const twitterMonitor = require("./twitter-monitor");
 const twitterName = require("./twitter-name");
 const { scopedKey } = require("./library-context");
 
-const INTERVAL_CHOICE_KEY = "eagle-video-downloader.twitterIntervalChoice";
-const THEME_FOLLOW_KEY = "eagle-video-downloader.followEagleTheme";
-const THEME_KEY = "eagle-video-downloader.theme";
+const INTERVAL_CHOICE_KEY = "Edge-Media-Download-NEW.twitterIntervalChoice";
+const THEME_FOLLOW_KEY = "Edge-Media-Download-NEW.followEagleTheme";
+const THEME_KEY = "Edge-Media-Download-NEW.theme";
 const THEME_NAMES = ["light", "lightgray", "gray", "dark", "blue", "purple"];
 
 function shell() {
@@ -441,7 +441,7 @@ function refreshTwitterTagJoins(join) {
 
 /* ---------------- 账号卡：Cookie 输入收纳 ---------------- */
 
-const ACCOUNT_EDITOR_KEY = "eagle-video-downloader.twitterEditorExpanded";
+const ACCOUNT_EDITOR_KEY = "Edge-Media-Download-NEW.twitterEditorExpanded";
 let accountEditorExpanded = readAccountEditorPref();
 let lastAccountConnected = null;
 

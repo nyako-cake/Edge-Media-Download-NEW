@@ -140,9 +140,9 @@ npm run package  # build and pack 媒体下载器.eagleplugin
 
 Sources live in `js/`, and the interface is `Plugin/index.html` (inlined styles) together with `Plugin/native-skin.css`. The project uses esbuild for bundling and i18next for localisation, yt-dlp for extraction and Eagle's official FFmpeg plugin for muxing.
 
-`Plugin/dist/plugin.js` is a build artifact but is committed on purpose: a fresh clone can import `Plugin/` into Eagle and run without building first. Note that the current bundle is the result of several rounds of hand edits and `js/` is not fully in sync with it, so `npm run build` drops some features — diff before rebuilding.
+`Plugin/dist/plugin.js` is a build artifact but is committed on purpose: a fresh clone can import `Plugin/` into Eagle and run without building first. Every change under `js/` must be rebuilt with `npm run build` and the updated bundle committed alongside it, or the committed artifact drifts from the sources.
 
-The release workflow (`.github/workflows/build.yml`) only packages the committed `Plugin/` and `edge-extension/` folders; it does not run the build.
+The release workflow (`.github/workflows/build.yml`) rebuilds and packages both the plugin and the extension when a `v*` tag is pushed.
 
 ## Data and ports
 
