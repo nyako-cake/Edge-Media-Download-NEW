@@ -1,0 +1,143 @@
+/* Eagle 视频下载助手 — 样式（尽量收敛，避免影响 X 自身布局） */
+.evd-eagle-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin: 6px 0 2px;
+  padding: 0 2px;
+  pointer-events: auto;
+}
+
+/* Sankaku 投稿页：悬浮在视频右上角，层级置顶 */
+.evd-eagle-wrap.evd-eagle-video-btn {
+  position: fixed;
+  top: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  z-index: 2147483000;
+  pointer-events: auto;
+}
+
+.evd-eagle-wrap.evd-eagle-video-btn .evd-eagle-btn {
+  height: 28px;
+  padding: 0 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Sankaku 投稿页：没有视频时注入左侧操作栏（MUI Drawer） */
+.evd-eagle-wrap.evd-eagle-drawer {
+  margin: 6px 8px 10px;
+  padding: 0;
+  justify-content: stretch;
+}
+
+.evd-eagle-wrap.evd-eagle-drawer .evd-eagle-btn {
+  width: 100%;
+  height: 30px;
+  justify-content: center;
+}
+
+/* Sankaku 投稿页：没有左侧栏时固定在视口右下角 */
+.evd-eagle-wrap.evd-eagle-floating {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  margin: 0;
+  z-index: 2147483000;
+}
+
+/* Sankaku 图库：浮在视频右下角，避免破坏播放器布局 */
+.evd-eagle-wrap.evd-eagle-overlay {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
+  z-index: 5;
+}
+
+.evd-eagle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.evd-eagle-btn:hover {
+  background: rgba(49, 151, 255, 0.85);
+  border-color: rgba(49, 151, 255, 0.95);
+}
+
+.evd-eagle-btn:active {
+  transform: scale(0.98);
+}
+
+.evd-eagle-btn.is-ok {
+  background: rgba(75, 217, 82, 0.85);
+  border-color: rgba(75, 217, 82, 0.95);
+}
+
+.evd-eagle-btn.is-error {
+  background: rgba(245, 108, 108, 0.85);
+  border-color: rgba(245, 108, 108, 0.95);
+}
+
+.evd-eagle-btn[data-state="sending"] {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.evd-eagle-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+html[data-evd-color-scheme="light"] .evd-eagle-btn {
+  background: rgba(255, 255, 255, 0.75);
+  color: #0f1419;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+/* 找不到媒体容器时的兜底位置：贴在推文末尾 */
+.evd-eagle-wrap.evd-eagle-inline {
+  margin: 8px 0 4px;
+  padding: 0;
+  justify-content: flex-start;
+}
+/* 通用悬浮按钮：以媒体元素右上角为锚点 */
+.evd-eagle-wrap.evd-eagle-float {
+  position: fixed;
+  top: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  z-index: 2147483000;
+  pointer-events: auto;
+}
+
+.evd-eagle-wrap.evd-eagle-float .evd-eagle-btn {
+  height: 28px;
+  padding: 0 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+/* 注入到页面媒体容器（css-g5y9jx）内部时：绝对定位到右上角 */
+.evd-eagle-wrap.evd-eagle-inside {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+  padding: 0;
+  z-index: 20;
+  pointer-events: auto;
+}

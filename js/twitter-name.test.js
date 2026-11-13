@@ -1,0 +1,286 @@
+// node js/twitter-name.test.js
+const assert = require("assert");
+const { buildTwitterName, buildTwitterAnnotation, buildTwitterTags, sanitizeName, appendPartSuffix, composeImportName, normalizeOrder, moveInOrder, getDefaultPrefs, FIELD_ORDER, FIELD_MAX_LENGTH, NAME_MAX_LENGTH, ANNOTATION_MAX_LENGTH, TAG_MAX_LENGTH } = require("./twitter-name");
+
+const tweetMeta = {
+  authorId: "44196397",
+  id: "1789000000000000000",
+  authorScreenName: "nyako_cake",
+  authorName: "Nyako",
+  description: "今日份的猫 https://t.co/abc123 好可爱",
+  extractor: "twitter",
+};
+
+// 一个字段都没勾：返回空串，调用方回落到默认标题
+assert.strictEqual(buildTwitterName(tweetMeta), "");
+assert.strictEqual(
+  buildTwitterName(tweetMeta, { authorId: false, tweetId: false, screenName: false, name: false, text: false }),
+  ""
+);
+
+// 只勾用户名字段
+assert.strictEqual(buildTwitterName(tweetMeta, { screenName: true }), "@nyako_cake");
+
+// 只勾推文正文：t.co 短链去掉，空白折叠
+assert.strictEqual(buildTwitterName(tweetMeta, { text: true }), "今日份的猫 好可爱");
+
+// 前后两个字段按固定顺序拼接，与勾选顺序无关
+assert.strictEqual(
+  buildTwitterName(tweetMeta, { screenName: true, name: true }),
+  "@nyako_cake - Nyako",
+  "screenName comes before full name regardless of check order"
+);
+
+// 五项全开：固定顺序 作者ID → 推文ID → 用户名 → 正文 → 全名
+assert.strictEqual(
+  buildTwitterName(tweetMeta, { authorId: true, tweetId: true, screenName: true, name: true, text: true }),
+  "44196397 - 1789000000000000000 - @nyako_cake - 今日份的猫 好可爱 - Nyako"
+);
+
+// 文件名非法字符被替换，不会留下冒号或斜杠
+assert.strictEqual(sanitizeName("a/b:c*d?e\"f<g>h|i"), "a b c d e f g h i");
+assert.strictEqual(buildTwitterName({ description: "标题/带:非法*字符" }, { text: true }), "标题 带 非法 字符");
+
+// 超长正文按字段上限截断并补省略号
+const longText = "猫".repeat(FIELD_MAX_LENGTH.text + 30);
+const longName = buildTwitterName({ description: longText }, { text: true });
+assert.strictEqual(longName.length, FIELD_MAX_LENGTH.text, "text field capped before joining");
+assert(longName.endsWith("…"), "truncated field ends with ellipsis");
+
+// 多字段拼接后超过总长度上限时按 NAME_MAX_LENGTH 截断
+const manyFieldsMeta = {
+  authorId: "1".repeat(40),
+  id: "2".repeat(40),
+  authorScreenName: "user",
+  authorName: "N".repeat(60),
+  description: "猫".repeat(100),
+};
+const capped = buildTwitterName(manyFieldsMeta, { authorId: true, tweetId: true, screenName: true, name: true, text: true });
+assert.strictEqual(capped.length, NAME_MAX_LENGTH, "joined name capped at the total limit");
+
+// yt-dlp 兜底元信息：没有作者数字 ID 时该字段不参与命名
+assert.strictEqual(
+  buildTwitterName(
+    { id: "1789", uploader_id: "nyako_cake", uploader: "Nyako", description: "hi" },
+    { authorId: true, tweetId: true, screenName: true }
+  ),
+  "1789 - @nyako_cake",
+  "fallback metadata skips missing author id"
+);
+
+// 空元信息不拼出任何内容
+assert.strictEqual(buildTwitterName(null, { text: true, name: true }), "");
+
+// 用户名不会重复加 @
+assert.strictEqual(buildTwitterName({ authorScreenName: "@nyako" }, { screenName: true }), "@nyako");
+
+// 用户可调整顺序：拼名按 prefs.order，而不是默认顺序
+assert.strictEqual(
+  buildTwitterName(tweetMeta, { screenName: true, text: true, order: ["text", "tweetId", "screenName", "authorId", "name"] }),
+  "今日份的猫 好可爱 - @nyako_cake",
+  "order in prefs decides the join order"
+);
+
+// 顺序里只给了部分字段时，缺失字段按默认顺序补到末尾
+assert.deepStrictEqual(normalizeOrder(["text", "screenName"]), ["text", "screenName", "authorId", "tweetId", "name"]);
+assert.deepStrictEqual(normalizeOrder(["text", "text", "bogus"]), ["text", "authorId", "tweetId", "screenName", "name"]);
+assert.deepStrictEqual(normalizeOrder(null), FIELD_ORDER.slice());
+assert.deepStrictEqual(getDefaultPrefs().order, FIELD_ORDER.slice(), "default prefs carry the default order");
+
+// 上移 / 下移一格，首行上移与末行下移越界返回 null
+assert.deepStrictEqual(moveInOrder(FIELD_ORDER, "tweetId", "up"), ["tweetId", "authorId", "screenName", "text", "name"]);
+assert.deepStrictEqual(moveInOrder(FIELD_ORDER, "name", "up"), ["authorId", "tweetId", "screenName", "name", "text"]);
+assert.strictEqual(moveInOrder(FIELD_ORDER, "authorId", "up"), null, "first row cannot move up");
+assert.strictEqual(moveInOrder(FIELD_ORDER, "name", "down"), null, "last row cannot move down");
+
+// 调整顺序后，同名两字段的拼接顺序随之变化：把「推特全名」上移两次到用户名之前
+const movedOnce = moveInOrder(FIELD_ORDER, "name", "up");
+const movedTwice = moveInOrder(movedOnce, "name", "up");
+assert.deepStrictEqual(movedTwice, ["authorId", "tweetId", "name", "screenName", "text"]);
+assert.strictEqual(
+  buildTwitterName(tweetMeta, { screenName: true, name: true, order: movedTwice }),
+  "Nyako - @nyako_cake",
+  "moving full name above username flips the joined order"
+);
+
+// 同一条推文多个文件：末尾追加 (i/N)，单个文件不加
+assert.strictEqual(appendPartSuffix("名字", 2, 3, 150), "名字 (2/3)");
+assert.strictEqual(appendPartSuffix("名字", 1, 1, 150), "名字");
+assert.strictEqual(appendPartSuffix("名字", 0, 5, 150), "名字");
+assert.strictEqual(appendPartSuffix("名字", 1, 0, 150), "名字");
+
+// 加序号后仍受总长度上限约束
+const suffixBase = "猫".repeat(NAME_MAX_LENGTH);
+const suffixed = appendPartSuffix(suffixBase, 3, 4, NAME_MAX_LENGTH);
+assert.strictEqual(suffixed.length, NAME_MAX_LENGTH, "suffix keeps the total length within the limit");
+assert(suffixed.endsWith(" (3/4)"), "suffix is preserved at the end");
+
+// 一推多图：同一份元信息生成的名称靠序号区分，三张图互不相同
+const multiImageNames = [1, 2, 3].map((index) =>
+  composeImportName(tweetMeta, { text: true }, { index, total: 3 }, "downloaded")
+);
+assert.strictEqual(multiImageNames[0], "今日份的猫 好可爱 (1/3)");
+assert.strictEqual(multiImageNames[2], "今日份的猫 好可爱 (3/3)");
+assert.strictEqual(new Set(multiImageNames).size, 3, "multi-image names are unique");
+
+// 未勾选任何字段时沿用标题，同样带序号
+assert.strictEqual(
+  composeImportName(Object.assign({}, tweetMeta, { title: "正文 - @nyako_cake" }), {}, { index: 2, total: 2 }, "downloaded"),
+  "正文 - @nyako_cake (2/2)"
+);
+
+// 非推特站点不受字段规则影响，只追加序号
+assert.strictEqual(
+  composeImportName({ extractor: "youtube", title: "YouTube 视频" }, { text: true }, { index: 1, total: 2 }, "downloaded"),
+  "YouTube 视频 (1/2)"
+);
+
+// 单个文件不加序号
+assert.strictEqual(composeImportName(tweetMeta, { text: true }, { index: 0, total: 0 }, "downloaded"), "今日份的猫 好可爱");
+
+// 没有任何可用的名字时回落到兜底文案
+assert.strictEqual(composeImportName({}, {}, null, "downloaded video"), "downloaded video");
+
+// 多文件区分开关关闭时：不加 (i/N)，几个文件共用同一个名称
+assert.strictEqual(
+  composeImportName(tweetMeta, { text: true }, { index: 2, total: 3 }, "downloaded", false),
+  "今日份的猫 好可爱",
+  "appendPart=false keeps the plain name"
+);
+assert.strictEqual(
+  composeImportName({ extractor: "xiaohongshu", title: "笔记标题" }, {}, { index: 1, total: 2 }, "downloaded", false),
+  "笔记标题",
+  "appendPart=false also applies to non-Twitter sources"
+);
+// 开关打开时行为不变
+assert.strictEqual(composeImportName(tweetMeta, { text: true }, { index: 2, total: 3 }, "downloaded", true), "今日份的猫 好可爱 (2/3)");
+
+// ---------------- 注释规则 ----------------
+
+// 一项都不勾：返回空串，调用方回落到推文正文
+assert.strictEqual(buildTwitterAnnotation(tweetMeta), "");
+assert.strictEqual(buildTwitterAnnotation(tweetMeta, { order: ["text"] }), "");
+
+// 顺序按 prefs.order 走，与命名同一套规则
+assert.strictEqual(buildTwitterAnnotation(tweetMeta, { screenName: true, text: true }), "@nyako_cake - 今日份的猫 好可爱");
+assert.strictEqual(
+  buildTwitterAnnotation(tweetMeta, { screenName: true, text: true, order: ["text", "authorId", "tweetId", "name", "screenName"] }),
+  "今日份的猫 好可爱 - @nyako_cake"
+);
+
+// 注释不清理文件名非法字符：冒号与斜杠原样保留
+assert.strictEqual(
+  buildTwitterAnnotation({ ...tweetMeta, description: "A/B: C" }, { text: true }),
+  "A/B: C"
+);
+
+// 正文不再按文件名的 100 字收紧，120 字的正文在注释里完整保留
+const annotationLongText = "猫".repeat(120);
+assert.strictEqual(buildTwitterAnnotation({ description: annotationLongText }, { text: true }), annotationLongText);
+assert.strictEqual(buildTwitterName({ description: annotationLongText }, { text: true }).length, 100);
+
+// 正文不单独截断：4100 字的正文原样保留，不会被补省略号
+const veryLongText = "猫".repeat(4100);
+assert.strictEqual(buildTwitterAnnotation({ description: veryLongText }, { text: true }), veryLongText);
+
+// 超过注释总长上限（5000）时整体截断
+const overlongText = "猫".repeat(6000);
+assert.strictEqual(buildTwitterAnnotation({ description: overlongText }, { text: true }).length, ANNOTATION_MAX_LENGTH);
+
+// 多字段拼接超过注释上限（5000）时整体截断
+const hugeMeta = { authorId: "1".repeat(40), id: "2".repeat(40), authorScreenName: "s".repeat(38), authorName: "n".repeat(60), description: "猫".repeat(6000) };
+const huge = buildTwitterAnnotation(hugeMeta, { authorId: true, tweetId: true, screenName: true, text: true, name: true });
+assert.strictEqual(huge.length, ANNOTATION_MAX_LENGTH);
+
+// 元信息缺 authorId（yt-dlp 兜底路径）时跳过该字段
+assert.strictEqual(
+  buildTwitterAnnotation({ uploader: "Nyako", uploader_id: "nyako_cake", description: "hi", id: "1" }, { authorId: true, screenName: true, text: true }),
+  "@nyako_cake - hi"
+);
+
+console.log("twitter-name: buildTwitterAnnotation checks passed");
+
+// --------------- 标签规则 ---------------
+
+// 一项都不勾：返回空数组，调用方沿用原来的站点标签
+assert.deepStrictEqual(buildTwitterTags(tweetMeta), []);
+assert.deepStrictEqual(buildTwitterTags(tweetMeta, { order: ["text"] }), []);
+
+// 每个勾选的字段各自成为一条独立标签，不拼接成一条
+assert.deepStrictEqual(buildTwitterTags(tweetMeta, { screenName: true, text: true }), ["@nyako_cake", "今日份的猫 好可爱"]);
+
+// 五项全开：默认顺序 作者ID → 推文ID → 用户名 → 正文 → 全名
+assert.deepStrictEqual(
+  buildTwitterTags(tweetMeta, { authorId: true, tweetId: true, screenName: true, text: true, name: true }),
+  ["44196397", "1789000000000000000", "@nyako_cake", "今日份的猫 好可爱", "Nyako"]
+);
+
+// 顺序按 prefs.order 走
+assert.deepStrictEqual(
+  buildTwitterTags(tweetMeta, { screenName: true, text: true, order: ["text", "authorId", "tweetId", "name", "screenName"] }),
+  ["今日份的猫 好可爱", "@nyako_cake"],
+  "tag order follows the arranged order"
+);
+
+// 标签里不留 # 号：正文自带的话题标签去掉井号，避免在 Eagle 里被当成话题
+assert.deepStrictEqual(buildTwitterTags({ description: "#猫 #日常 好可爱" }, { text: true }), ["猫 日常 好可爱"]);
+
+// 同一条推文里大小写不同的重复值只保留一条
+assert.deepStrictEqual(
+  buildTwitterTags({ description: "#Nyako", authorName: "nyako" }, { text: true, name: true }),
+  ["Nyako"],
+  "duplicate tags are compared case-insensitively"
+);
+
+// 单条标签超过 100 字符截断并补省略号
+const longTagText = "猫".repeat(130);
+const longTag = buildTwitterTags({ description: longTagText }, { text: true })[0];
+assert.strictEqual(longTag.length, TAG_MAX_LENGTH);
+assert(longTag.endsWith("…"), "over-long tag ends with ellipsis");
+
+// 元信息缺 authorId（yt-dlp 兜底路径）时跳过该字段
+assert.deepStrictEqual(
+  buildTwitterTags({ uploader: "Nyako", uploader_id: "nyako_cake", description: "hi", id: "1789" }, { authorId: true, tweetId: true, screenName: true }),
+  ["1789", "@nyako_cake"],
+  "missing author id is skipped"
+);
+
+// 空元信息不产出任何标签
+assert.deepStrictEqual(buildTwitterTags(null, { text: true, name: true }), []);
+
+// 组合标签：join 里的字段并到它上面那条已勾选的标签里，用「 - 」连接后输出一条
+assert.deepStrictEqual(
+  buildTwitterTags(tweetMeta, { screenName: true, text: true, join: ["text"] }),
+  ["@nyako_cake - 今日份的猫 好可爱"],
+  "joined pair becomes a single tag"
+);
+
+// 连续合并：三行都勾选且后两个都 join，并成一条
+assert.deepStrictEqual(
+  buildTwitterTags(tweetMeta, { authorId: true, tweetId: true, screenName: true, join: ["tweetId", "screenName"] }),
+  ["44196397 - 1789000000000000000 - @nyako_cake"],
+  "consecutive joins merge into one tag"
+);
+
+// 只合并是否相邻决定：中间隔着未勾选的字段就不合并
+assert.deepStrictEqual(
+  buildTwitterTags(tweetMeta, { authorId: true, screenName: true, join: ["screenName"] }),
+  ["44196397", "@nyako_cake"],
+  "an unchecked field in between breaks the join"
+);
+
+// 顺序里排第一的字段没有「上一条」，join 标记被忽略
+assert.deepStrictEqual(
+  buildTwitterTags(tweetMeta, { screenName: true, text: true, join: ["text"], order: ["text", "tweetId", "screenName", "authorId", "name"] }),
+  ["今日份的猫 好可爱", "@nyako_cake"],
+  "the first tag cannot join anything above it"
+);
+
+// 合并后的长度同样受单条标签上限约束
+const joinedLong = buildTwitterTags({ description: "猫".repeat(80), authorName: "狗".repeat(30) }, { name: true, text: true, join: ["name"] })[0];
+assert.strictEqual(joinedLong.length, TAG_MAX_LENGTH);
+assert(joinedLong.endsWith("…"), "merged tag is truncated to the tag limit");
+
+console.log("twitter-name: buildTwitterTags checks passed");
+
+console.log("twitter-name: buildTwitterName checks passed");

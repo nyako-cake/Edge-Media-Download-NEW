@@ -1,0 +1,728 @@
+/**
+ * 视频下载模块
+ * 处理视频下载核心调度逻辑，具体站点差异由 js/sites/ 适配器处理
+ */
+
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const { spawn } = require("child_process");
+const i18next = require("i18next");
+
+const { getYtDlpPath, getFfmpegPath, BIN_DIR, downloadYtDlp } = require("./binary");
+const { validateUrl, secureHttpsGet } = require("./net-guard");
+const { getSystemProxyUrl } = require("./system-proxy");
+const siteAdapters = require("./sites");
+
+let maxResolution = "auto";
+let maxFramerate = "auto";
+let threadCount = 0;
+
+// 正在运行的 yt-dlp 子进程（供「全部暂停」中断用）
+const runningProcs = new Set();
+const cancelledProcs = new WeakSet();
+
+function cancelAll() {
+  let count = 0;
+  for (const proc of runningProcs) {
+    try {
+      cancelledProcs.add(proc);
+      proc.kill();
+      count++;
+    } catch (e) {
+      // ignore
+    }
+  }
+  return count;
+}
+
+function setQualityPrefs({ resolution = "auto", framerate = "auto" } = {}) {
+  maxResolution = resolution || "auto";
+  maxFramerate = framerate || "auto";
+}
+
+/**
+ * 根据分辨率和帧率设置构建 yt-dlp -f 格式选择器（支持自动向下兜底）
+ */
+/**
+ * Concurrent fragment count (maps to yt-dlp --concurrent-fragments).
+ * Only affects segmented streams (HLS/DASH); progressive files ignore it.
+ */
+function setThreadCount(value) {
+  // "auto"：交给引擎自适应，分片流按 8 路并发（与偏好项里的「自动」语义一致）
+  if (String(value) === "auto") {
+    threadCount = 8;
+    return;
+  }
+  const parsed = parseInt(value, 10);
+  threadCount = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Estimate merge/transcode progress by watching the output file grow against
+ * the total size of the downloaded fragments (yt-dlp and ffmpeg do not report
+ * post-processing progress).
+ */
+function startProcessingWatcher(outputDir, sanitizedTitle, onProgress) {
+  const base = escapeRegExp(sanitizedTitle);
+  const finalRe = new RegExp(`^${base}_\\d+\\.[^.]+$`);
+  const partRe = new RegExp(`^${base}_\\d+\\.[^.]{1,8}\\.[^.]+$`);
+  const timer = setInterval(() => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(outputDir);
+    } catch (e) {
+      return;
+    }
+    const finals = entries.filter((name) => finalRe.test(name) && !partRe.test(name));
+    if (!finals.length) return;
+    let expected = 0;
+    for (const name of entries) {
+      if (!partRe.test(name)) continue;
+      try {
+        expected += fs.statSync(path.join(outputDir, name)).size;
+      } catch (e) {}
+    }
+    if (expected <= 0) return;
+    let written = 0;
+    for (const name of finals) {
+      try {
+        written += fs.statSync(path.join(outputDir, name)).size;
+      } catch (e) {}
+    }
+    if (onProgress) {
+      onProgress({ processingPercent: Math.max(0, Math.min(99, Math.round((written / expected) * 100))) });
+    }
+  }, 400);
+  if (timer.unref) timer.unref();
+  return { stop: () => clearInterval(timer) };
+}
+
+function buildFormatSelector(resolution, framerate) {
+  const heightFilter = resolution && resolution !== "auto" ? `[height<=${resolution}]` : "";
+  const fpsFilter = framerate && framerate !== "auto" ? `[fps<=${framerate}]` : "";
+
+  if (!heightFilter && !fpsFilter) {
+    return "bestvideo+bestaudio/best/b";
+  }
+
+  const parts = [];
+  if (heightFilter && fpsFilter) {
+    parts.push(`bestvideo${heightFilter}${fpsFilter}+bestaudio/best${heightFilter}${fpsFilter}`);
+  }
+  if (heightFilter) {
+    parts.push(`bestvideo${heightFilter}+bestaudio/best${heightFilter}`);
+  }
+  if (fpsFilter) {
+    parts.push(`bestvideo${fpsFilter}+bestaudio/best${fpsFilter}`);
+  }
+  parts.push("bestvideo+bestaudio/best/b");
+
+  return parts.join("/");
+}
+
+/**
+ * 判断 spawn 错误是否表示二进制文件本身已损坏
+ */
+function isCorruptedBinaryError(error) {
+  return error.code === "EBADMACHO" || error.code === "ENOEXEC" || error.errno === -88;
+}
+
+/**
+ * 执行 yt-dlp 命令
+ */
+function execYtDlp(args, onProgress, onOutput, options = {}) {
+  // 记录正在跑的 yt-dlp 进程，供「全部暂停」时统一中断  // 兼容旧签名：第 4 参数传 boolean 时视为 { allowRecovery: value }
+  if (typeof options === 'boolean') {
+    options = { allowRecovery: options };
+  }
+  const { allowRecovery = true, targetUrl = null } = options;
+
+  return new Promise((resolve, reject) => {
+    const ytdlp = getYtDlpPath();
+
+    if (!fs.existsSync(ytdlp)) {
+      reject(new Error(i18next.t("error.ytdlpNotInstalled")));
+      return;
+    }
+
+    if (os.platform() !== 'win32') {
+      try { fs.chmodSync(ytdlp, '755'); } catch (e) {}
+    }
+
+    const recoverFromCorruptBinary = (error) => {
+      try { fs.unlinkSync(ytdlp); } catch (e) {}
+      downloadYtDlp()
+        .then(() => execYtDlp(args, onProgress, onOutput, { allowRecovery: false, targetUrl }))
+        .then(resolve)
+        .catch(() => reject(new Error(`${i18next.t("error.failedToExecuteYtdlp")}: ${error.message}`)));
+    };
+
+    const finalArgs = args.includes("--force-ipv4") ? args : ["--force-ipv4", ...args];
+    // yt-dlp 不会自动使用 Windows 系统代理，这里显式传入，保证图片 / 视频 CDN 可达
+    const proxyUrl = getSystemProxyUrl();
+    const runArgs = proxyUrl && !finalArgs.includes("--proxy") ? ["--proxy", proxyUrl, ...finalArgs] : finalArgs;
+
+    let proc;
+    try {
+      proc = spawn(ytdlp, runArgs, { cwd: BIN_DIR });
+    } catch (error) {      if (allowRecovery && isCorruptedBinaryError(error)) {
+        recoverFromCorruptBinary(error);
+        return;
+      }
+      reject(new Error(`${i18next.t("error.failedToExecuteYtdlp")}: ${error.message}`));
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    runningProcs.add(proc);
+
+    proc.stdout.on("data", (data) => {
+      const output = data.toString();
+      stdout += output;
+
+      if (onOutput) onOutput(output);
+
+      const progressMatch = output.match(/\[download\]\s+(\d+\.?\d*)%/);
+
+      if (progressMatch && onProgress) {
+        const percent = parseFloat(progressMatch[1]);
+        const sizeMatch = output.match(/of\s+~?\s*(\S+)/);
+        const totalSize = sizeMatch ? sizeMatch[1] : "";
+        const speedMatch = output.match(/at\s+(\S+)/);
+        const currentSpeed = speedMatch ? speedMatch[1] : "";
+        const etaMatch = output.match(/ETA\s+(\S+)/);
+        const eta = etaMatch ? etaMatch[1] : "";
+
+        onProgress({
+          percent: percent,
+          totalSize: totalSize,
+          currentSpeed: currentSpeed,
+          eta: eta,
+        });
+      }
+    });
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("error", (error) => {
+      runningProcs.delete(proc);
+      if (allowRecovery && isCorruptedBinaryError(error)) {
+        recoverFromCorruptBinary(error);
+        return;
+      }
+
+      let detail = error.message;
+      if (error.code === "ENOENT") {
+        detail = i18next.t("error.ytdlpNotFound") + " (ENOENT)";
+      } else if (error.code === "EACCES") {
+        detail = i18next.t("error.ytdlpPermissionDenied") + " (EACCES)";
+      }
+      reject(new Error(`${i18next.t("error.failedToExecuteYtdlp")}: ${detail}`));
+    });
+
+    proc.on("close", async (code) => {
+      runningProcs.delete(proc);
+      if (cancelledProcs.has(proc)) {
+        const err = new Error("ECANCELED");
+        err.code = "ECANCELED";
+        reject(err);
+        return;
+      }
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        // 使用调用方显式传入的 targetUrl 而非从 args 猜测，
+        // 避免 --referer https://www.pinterest.com/ 之类的 site args 被误选为目标 URL
+        if (targetUrl) {
+          try {
+            const recoveryResult = await siteAdapters.handleExecFailure({
+              code,
+              stderr,
+              args,
+              onProgress,
+              onOutput,
+              execYtDlp,
+              getSiteArgsForUrl: siteAdapters.getSiteArgs,
+              url: targetUrl,
+            });
+            if (recoveryResult !== null) {
+              resolve(recoveryResult);
+              return;
+            }
+          } catch (recoveryErr) {
+            // 降级失败时继续抛出原始错误
+          }
+        }
+
+        reject(
+          new Error(`${i18next.t("error.ytdlpExitedWithCode")} ${code}: ${stderr}`)
+        );
+      }
+    });
+  });
+}
+
+/**
+ * 通用 HTTPS 文件下载器（连接 pin 到已校验 IP，逐跳重定向重新校验）
+ */
+async function downloadFile(url, outputPath, onProgress, maxRedirects = 5) {
+  const dir = path.dirname(outputPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    (async () => {
+      let req;
+      try {
+        req = await secureHttpsGet(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+        }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            if (maxRedirects <= 0) return reject(new Error('Too many redirects'));
+            let redirectUrl = res.headers.location;
+            if (redirectUrl.startsWith('/')) {
+              const u = new URL(url);
+              redirectUrl = `${u.protocol}//${u.host}${redirectUrl}`;
+            }
+            res.resume();
+            downloadFile(redirectUrl, outputPath, onProgress, maxRedirects - 1).then(resolve).catch(reject);
+            return;
+          }
+          if (res.statusCode < 200 || res.statusCode >= 400) {
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+
+          const contentLength = parseInt(res.headers['content-length'] || '0', 10);
+          const fileStream = fs.createWriteStream(outputPath);
+          let received = 0;
+
+          res.on('data', (chunk) => {
+            received += chunk.length;
+            if (onProgress && contentLength > 0) {
+              onProgress({ percent: Math.round((received / contentLength) * 100) });
+            }
+          });
+
+          res.pipe(fileStream);
+          fileStream.on('finish', () => {
+            fileStream.close();
+            if (onProgress) onProgress({ percent: 100 });
+            resolve(outputPath);
+          });
+          fileStream.on('error', reject);
+        });
+      } catch (e) {
+        return reject(e);
+      }
+      req.on('error', reject);
+      req.setTimeout(30000, () => { req.destroy(); reject(new Error('Download timeout')); });
+    })();
+  });
+}
+
+/**
+ * 获取视频信息
+ */
+async function getVideoInfo(url) {
+  await validateUrl(url);
+  url = siteAdapters.normalizeUrl(url);
+  // normalizeUrl 可能产生派生 URL（如 Vimeo ID 转正规地址），必须重新校验
+  await validateUrl(url);
+
+  const customInfo = await siteAdapters.customGetInfo(url, {
+    execYtDlp,
+    parseYtDlpOutput,
+    getSiteArgsForUrl: siteAdapters.getSiteArgs,
+  });
+  if (customInfo) {
+    return customInfo;
+  }
+
+  const args = ["--dump-json", "--no-warnings", ...siteAdapters.getSiteArgs(url), url];
+  const output = await execYtDlp(args, null, null, { targetUrl: url });
+
+  return parseYtDlpOutput(output, url);
+}
+
+/**
+ * 解析 yt-dlp --dump-json 输出
+ */
+function parseYtDlpOutput(output, fallbackUrl) {
+  const lines = output.trim().split("\n").filter(Boolean);
+  let info = {};
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed._type === "video" || parsed.title || parsed.playlist_title) {
+        info = parsed;
+        if (parsed.title) break;
+      } else if (!info.id) {
+        info = parsed;
+      }
+    } catch (e) {}
+  }
+
+  return {
+    title: info.title || info.playlist_title || i18next.t("error.untitledVideo"),
+    description: info.description || "",
+    duration: info.duration || 0,
+    thumbnail: info.thumbnail || null,
+    uploader: info.uploader || info.channel || info.playlist_uploader || i18next.t("error.unknown"),
+    extractor: info.extractor || i18next.t("error.unknown"),
+    webpage_url: info.webpage_url || fallbackUrl,
+    id: info.id || null,
+  };
+}
+
+/**
+ * 净化文件名
+ */
+function sanitizeFilename(filename) {
+  let str = (typeof filename === 'string' && filename.trim().length > 0) ? filename : "";
+  if (!str) {
+    try {
+      if (typeof i18next !== "undefined" && typeof i18next.t === "function") {
+        const res = i18next.t("error.untitledVideo");
+        if (typeof res === 'string' && res.length > 0) str = res;
+      }
+    } catch (e) {}
+  }
+  if (!str || typeof str !== 'string') {
+    str = "Untitled Video";
+  }
+  return str
+    .replace(/[<>:"/\\|?*]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200) || "Untitled Video";
+}
+
+/**
+ * 读取文件头判断图片真实格式（部分 CDN 的地址没有扩展名，或返回与扩展名不符的内容）。
+ * 返回带点的扩展名，无法识别时返回 null。
+ */
+function detectImageExtension(filePath) {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const buffer = Buffer.alloc(16);
+    const read = fs.readSync(fd, buffer, 0, 16, 0);
+    fs.closeSync(fd);
+    if (read < 12) return null;
+    if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return ".jpg";
+    if (buffer[0] === 0x89 && buffer.toString("ascii", 1, 4) === "PNG") return ".png";
+    if (buffer.toString("ascii", 0, 3) === "GIF") return ".gif";
+    if (buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") return ".webp";
+    if (buffer.toString("ascii", 4, 8) === "ftyp") {
+      const brand = buffer.toString("ascii", 8, 12).toLowerCase();
+      if (["heic", "heix", "hevc", "hevx", "mif1", "msf1", "heif"].includes(brand)) return ".heic";
+      if (brand === "avif" || brand === "avis") return ".avif";
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 获取下载临时目录
+ */
+function getTempDir() {
+  const tempDir = path.join(os.tmpdir(), "eagle-video-downloader");
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  return tempDir;
+}
+
+/**
+ * 下载视频
+ */
+async function downloadVideo(url, onProgress, onStatus, preloadedInfo = null) {
+  await validateUrl(url);
+  let videoInfo;
+
+  if (preloadedInfo) {
+    videoInfo = preloadedInfo;
+  } else {
+    if (onStatus) onStatus(i18next.t("download.fetchingInfo"));
+    try {
+      videoInfo = await getVideoInfo(url);
+      if (onStatus && videoInfo && videoInfo.title) {
+        const foundMsg = (typeof i18next !== "undefined" && i18next.t) ? i18next.t("download.foundVideo") : "Found Video";
+        onStatus(`${foundMsg}: ${videoInfo.title}`);
+      }
+    } catch (error) {
+      videoInfo = {
+        title: (typeof i18next !== "undefined" && i18next.t) ? i18next.t("error.untitledVideo") : "Untitled Video",
+        extractor: (typeof i18next !== "undefined" && i18next.t) ? i18next.t("error.unknown") : "Unknown",
+      };
+    }
+  }
+
+  // 图片投稿：支持一条推文里的多张图片
+  const images = videoInfo
+    ? (Array.isArray(videoInfo.images) && videoInfo.images.length
+      ? videoInfo.images
+      : (videoInfo.type === 'image' && videoInfo.imageUrl ? [videoInfo.imageUrl] : []))
+    : [];
+
+  if (images.length) {
+    const outputDir = getTempDir();
+    const sanitizedTitle = sanitizeFilename(videoInfo.title);
+    // 部分站点（如小红书）明确要求直连 CDN，跳过 yt-dlp 的无效尝试
+    const imageDirect = videoInfo.imageDirect === true;
+    if (onStatus) onStatus(i18next.t("ui.downloading"));
+
+    const results = [];
+    for (let index = 0; index < images.length; index++) {
+      const entry = images[index];
+      const imageUrl = typeof entry === 'string' ? entry : (entry && entry.url);
+      if (typeof imageUrl !== 'string' || !/^https:\/\//i.test(imageUrl)) {
+        throw new Error(i18next.t("error.invalidUrl"));
+      }
+      await validateUrl(imageUrl);
+      const fallbacks = (entry && typeof entry === 'object' && Array.isArray(entry.fallbacks))
+        ? entry.fallbacks.filter((item) => typeof item === 'string' && /^https:\/\//i.test(item))
+        : [];
+      const urlPath = new URL(imageUrl).pathname;
+      const ext = path.extname(urlPath) || '.jpg';
+      const suffix = images.length > 1 ? '_' + (index + 1) : '';
+      const filename = sanitizedTitle + suffix + ext;
+      const outputPath = path.join(outputDir, filename);
+      const imageProgress = images.length > 1 ? undefined : onProgress;
+
+      let lastError = null;
+      let downloaded = false;
+      const candidates = [imageUrl, ...fallbacks];
+      for (let candidateIndex = 0; candidateIndex < candidates.length && !downloaded; candidateIndex++) {
+        const candidate = candidates[candidateIndex];
+        // 清掉上一个候选可能留下的半截文件，避免把失败结果当成成功
+        try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (e) {}
+        try {
+          await validateUrl(candidate);
+          if (candidateIndex === 0 && !imageDirect) {
+            try {
+              // 走 yt-dlp：它继承系统代理，Twitter/Sankaku 的图片 CDN 在部分网络下直连不可达
+              await execYtDlp([candidate, '-o', outputPath, '--no-warnings'], imageProgress, null, false);
+            } catch (e) {
+              // 视频站点以外的直链图片多半会被 yt-dlp 拒绝，交给直连下载
+            }
+          }
+          if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
+            await downloadFile(candidate, outputPath, imageProgress);
+          }
+          downloaded = fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0;
+          if (!downloaded) throw new Error('image not written');
+        } catch (e) {
+          lastError = e;
+          downloaded = false;
+        }
+        // 原图是 HEIC 时 Eagle 多半无法预览，改用候选里的 JPEG/WebP
+        const detected = downloaded ? detectImageExtension(outputPath) : null;
+        if (detected === '.heic' && candidateIndex < candidates.length - 1) {
+          try { fs.unlinkSync(outputPath); } catch (e) {}
+          downloaded = false;
+        }
+      }
+      if (!downloaded) {
+        throw lastError || new Error(i18next.t("error.fileNotFound"));
+      }
+
+      // 按实际文件头修正扩展名（CDN 地址常常不带扩展名，或返回 PNG/WebP）
+      let finalPath = outputPath;
+      const detected = detectImageExtension(outputPath);
+      if (detected && detected !== ext) {
+        finalPath = outputPath.slice(0, outputPath.length - ext.length) + detected;
+        try {
+          fs.renameSync(outputPath, finalPath);
+        } catch (e) {
+          finalPath = outputPath;
+        }
+      }
+      results.push({
+        path: finalPath,
+        metadata: videoInfo,
+        filename: path.basename(finalPath),
+        partIndex: images.length > 1 ? index + 1 : 0,
+        partTotal: images.length > 1 ? images.length : 0,
+      });
+    }
+    return results;
+  }
+
+  // 站点已解析出直链（含一条推文多个视频）：直接下载 CDN 直链，
+  // 避免再让 yt-dlp 去访问推文页（部分网络下 x.com 本身不可达）
+  const directVideos = videoInfo && Array.isArray(videoInfo.videoUrls)
+    ? videoInfo.videoUrls.filter((item) => typeof item === "string" && item.startsWith("https://"))
+    : [];
+
+  if (directVideos.length >= 1) {
+    const multiDir = getTempDir();
+    const multiTitle = sanitizeFilename(videoInfo.title);
+    if (onStatus) onStatus(i18next.t("ui.downloading"));
+
+    const multiResults = [];
+    for (let index = 0; index < directVideos.length; index++) {
+      const videoUrl = directVideos[index];
+      await validateUrl(videoUrl);
+      const filename = `${multiTitle}_${index + 1}.mp4`;
+      const outputPath = path.join(multiDir, filename);
+      await execYtDlp(
+        [videoUrl, "-o", outputPath, "--no-warnings", "--merge-output-format", "mp4", "--http-chunk-size", "10M", "--retries", "10"],
+        undefined,
+        null,
+        false
+      );
+      if (!fs.existsSync(outputPath)) throw new Error(i18next.t("error.fileNotFound"));
+      multiResults.push({
+        path: outputPath,
+        metadata: videoInfo,
+        filename,
+        partIndex: directVideos.length > 1 ? index + 1 : 0,
+        partTotal: directVideos.length > 1 ? directVideos.length : 0,
+      });
+    }
+    return multiResults;
+  }
+
+  const outputDir = getTempDir();
+  const sanitizedTitle = sanitizeFilename(videoInfo.title);
+  // 部分站点要求「标题即文件名」，不加 _1 序号；默认保留序号避免同名覆盖
+  const titleOnly = videoInfo && videoInfo.useTitleAsFilename === true;
+  const outputTemplate = path.join(
+    outputDir,
+    titleOnly ? `${sanitizedTitle}.%(ext)s` : `${sanitizedTitle}_%(autonumber)s.%(ext)s`
+  );
+
+  let targetUrl = (videoInfo && typeof videoInfo.webpage_url === 'string' && videoInfo.webpage_url.startsWith('https'))
+    ? videoInfo.webpage_url
+    : url;
+  targetUrl = siteAdapters.normalizeUrl(targetUrl);
+  await validateUrl(targetUrl);
+  // 若 videoInfo 来自 Pinterest 派生源，在 download 阶段复检白名单，
+  // 确保「派生 URL 严格限制在已批准平台域名」的声明端到端成立
+  if (videoInfo && videoInfo.derivedFrom === 'pinterest') {
+    siteAdapters.assertDerivedHostAllowed(targetUrl);
+  }
+
+  const formatSelector = buildFormatSelector(maxResolution, maxFramerate);
+
+  const args = [
+    targetUrl,
+    "-o",
+    outputTemplate,
+    "-f",
+    formatSelector,
+    "--merge-output-format",
+    "mp4",
+    "--no-warnings",
+    // 直链大文件按 10MB 分块并发拉取：单连接被 CDN 限速时可显著提速
+    "--http-chunk-size",
+    "10M",
+    // 网络抖动时的重试余量，避免一次超时就判定失败
+    "--retries",
+    "10",
+    "--fragment-retries",
+    "10",
+    ...siteAdapters.getSiteArgs(targetUrl),
+  ];
+
+  if (threadCount > 0) {
+    args.push("-N", String(threadCount));
+  }
+
+  const ffmpeg = getFfmpegPath();
+  if (ffmpeg && fs.existsSync(ffmpeg)) {
+    args.push("--ffmpeg-location", path.dirname(ffmpeg));
+  }
+
+  if (onStatus) onStatus(i18next.t("ui.downloading"));
+
+  const filesBefore = new Set(fs.existsSync(outputDir) ? fs.readdirSync(outputDir) : []);
+
+  let processingPhase = null;
+  let processingWatcher = null;
+  let pendingOutput = "";
+  const handleOutput = (chunk) => {
+    const text = pendingOutput + String(chunk || "");
+    pendingOutput = text.slice(-32);
+    let next = null;
+    if (/\[Merger\]|Merging formats/i.test(text)) {
+      next = "merge";
+    } else if (/\[VideoConvertor\]|Converting video|\[Fixup/i.test(text)) {
+      next = "convert";
+    }
+    if (next && next !== processingPhase) {
+      processingPhase = next;
+      if (onProgress) onProgress({ phase: next });
+      if (!processingWatcher) {
+        processingWatcher = startProcessingWatcher(outputDir, sanitizedTitle, onProgress);
+      }
+    }
+  };
+
+  try {
+    await execYtDlp(args, onProgress, handleOutput, { targetUrl });
+  } catch (error) {
+    const message = String((error && error.message) || "");
+    const recoverable = /Postprocessing|Invalid data found|Error opening input/i.test(message);
+    if (!recoverable) throw error;
+
+    // 合并/后处理失败时退回单一最佳格式重试一次（不再走 ffmpeg 合并）
+    const retryArgs = args.slice();
+    const mergeIndex = retryArgs.indexOf("--merge-output-format");
+    if (mergeIndex >= 0) retryArgs.splice(mergeIndex, 2);
+    const formatIndex = retryArgs.indexOf("-f");
+    if (formatIndex >= 0) retryArgs[formatIndex + 1] = "b/best";
+    await execYtDlp(retryArgs, onProgress, handleOutput, { targetUrl });
+  } finally {
+    if (processingWatcher) processingWatcher.stop();
+  }
+
+  const filesAfter = fs.readdirSync(outputDir);
+  const newFiles = filesAfter.filter(f => !filesBefore.has(f) && f.startsWith(sanitizedTitle));
+
+  if (newFiles.length === 0) {
+    throw new Error(i18next.t("error.fileNotFound"));
+  }
+
+  return newFiles.map((filename, index) => ({
+    path: path.join(outputDir, filename),
+    metadata: videoInfo,
+    filename: filename,
+    partIndex: newFiles.length > 1 ? index + 1 : 0,
+    partTotal: newFiles.length > 1 ? newFiles.length : 0,
+  }));
+}
+
+/**
+ * 清理临时文件
+ */
+function cleanup(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    // Ignore cleanup errors
+  }
+}
+
+module.exports = {
+  downloadVideo,
+  getVideoInfo,
+  cleanup,
+  cancelAll,
+  setQualityPrefs,
+  setThreadCount,
+  buildFormatSelector,
+};

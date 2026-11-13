@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "媒体下载器（X / Sankaku / 小红书）",
+  "version": "1.0.0",
+  "description": "媒体下载器配套扩展：把 X/Twitter、Sankaku、小红书的视频与图片推送到 Eagle，支持页面按钮、工具栏图标、点赞或收藏自动推送与局域网分享。",
+  "minimum_chrome_version": "109",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "http://127.0.0.1:43110/*",
+    "http://127.0.0.1:41595/*",
+    "http://192.168.0.0/16/*",
+    "http://10.0.0.0/8/*",
+    "http://172.16.0.0/12/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.twitter.com/*",
+        "https://sankaku.app/*",
+        "https://*.sankaku.app/*",
+        "https://*.sankakucomplex.com/*",
+        "https://www.xiaohongshu.com/*",
+        "https://*.xiaohongshu.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "媒体下载器",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

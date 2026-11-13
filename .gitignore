@@ -1,0 +1,8 @@
+node_modules/
+Plugin/bin/
+*.eagleplugin
+check-*.png
+window-state.json
+Plugin/assets/sounds/custom.*
+.DS_Store
+Thumbs.db

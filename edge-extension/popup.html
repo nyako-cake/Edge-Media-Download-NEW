@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    :root { color-scheme: dark; }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      width: 336px;
+      padding: 14px 14px 12px;
+      background: #15161c;
+      color: #eceef3;
+      font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 12px;
+    }
+
+    /* 头部 */
+    .head { display: flex; align-items: center; gap: 10px; padding: 2px 2px 12px; }
+    .head img { width: 30px; height: 30px; border-radius: 8px; }
+    .head .tt { flex: 1; min-width: 0; }
+    .head .tt b { display: block; font-size: 13.5px; font-weight: 600; letter-spacing: .2px; }
+    .head .tt span { display: block; margin-top: 2px; font-size: 10.5px; color: rgba(255,255,255,.42); }
+    .pill {
+      flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+      height: 24px; padding: 0 9px; border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.12); background: #23252e;
+      font-size: 11px; color: rgba(255,255,255,.66);
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #8d8e95; flex: 0 0 7px; }
+    .dot.ok { background: #4bd952; box-shadow: 0 0 8px rgba(75,217,82,.55); }
+    .dot.warn { background: #f0a830; }
+    .dot.err { background: #f56c6c; }
+
+    /* 分组 */
+    .sec { margin-bottom: 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; background: #1c1e26; overflow: hidden; }
+    .sec-hd {
+      display: flex; align-items: center; gap: 7px;
+      padding: 9px 12px 7px; font-size: 10.5px; letter-spacing: 1.2px; color: rgba(255,255,255,.40);
+    }
+    .sec-hd .line { flex: 1; height: 1px; background: rgba(255,255,255,.07); }
+    .sec-hd .note { letter-spacing: 0; color: rgba(255,255,255,.34); }
+
+    /* 网站行 */
+    .site { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-top: 1px solid rgba(255,255,255,.055); }
+    .site:first-of-type { border-top: none; }
+    .logo {
+      width: 26px; height: 26px; flex: 0 0 26px; border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #fff; background: #2b2d38;
+    }
+    .logo.x { background: linear-gradient(135deg,#2b2b2b,#000); border: 1px solid #3b3b3b; }
+    .logo.sk { background: linear-gradient(135deg,#4a3f7a,#2b2550); }
+    .logo.xhs { background: linear-gradient(135deg,#ff4d6d,#e02b45); }
+    .site .si { flex: 1; min-width: 0; }
+    .site .sn { font-size: 12px; color: #e8eaf0; font-weight: 600; }
+    .site .sd { margin-top: 2px; font-size: 10.5px; color: rgba(255,255,255,.42); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tagcur {
+      display: none; flex: 0 0 auto; height: 20px; padding: 0 8px; border-radius: 10px;
+      font-size: 10px; line-height: 20px; color: #9fd0ff;
+      background: rgba(49,151,255,.14); border: 1px solid rgba(49,151,255,.38);
+    }
+    .site.current .tagcur { display: block; }
+
+    /* 功能行 */
+    .row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,.055); }
+    .row:first-of-type { border-top: none; }
+    .row .ri { flex: 1; min-width: 0; }
+    .row .rn { font-size: 12px; color: #e8eaf0; }
+    .row .rd { margin-top: 2px; font-size: 10.5px; color: rgba(255,255,255,.42); line-height: 1.4; }
+
+    .switch { position: relative; width: 34px; height: 20px; flex: 0 0 34px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; background: #43465a; border-radius: 999px;
+      cursor: pointer; transition: background .15s ease;
+    }
+    .slider::before {
+      content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px;
+      border-radius: 50%; background: #fff; transition: transform .15s ease;
+    }
+    .switch input:checked + .slider { background: #3197ff; }
+    .switch input:checked + .slider::before { transform: translateX(14px); }
+
+    /* 局域网 */
+    .lan-select {
+      width: 100%; height: 30px; margin: 2px 12px 8px; width: calc(100% - 24px);
+      padding: 0 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12);
+      background: #23252e; color: #e8eaf0; font-size: 11.5px; outline: none;
+    }
+    .lan-actions { display: flex; gap: 8px; padding: 0 12px; }
+    .lan-actions button { margin-top: 0; }
+    .lan-actions button.secondary { flex: 0 0 58px; background: #33364a; }
+    .lan-status { margin: 8px 12px 10px; min-height: 13px; color: rgba(255,255,255,.52); font-size: 10.5px; line-height: 1.5; }
+
+    button {
+      width: 100%; height: 30px; border: none; border-radius: 7px;
+      background: #3197ff; color: #fff; font-size: 11.5px; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.06); }
+
+    .foot { display: flex; align-items: center; gap: 8px; padding: 2px 2px 0; }
+    .foot .fh { flex: 1; font-size: 10.5px; line-height: 1.55; color: rgba(255,255,255,.34); }
+    .foot .mini {
+      flex: 0 0 auto; width: auto; height: 26px; padding: 0 12px;
+      background: #262833; color: #cfd3df; border: 1px solid rgba(255,255,255,.10);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="head">
+    <img src="icons/icon48.png" alt="" />
+    <div class="tt">
+      <b>媒体下载器</b>
+      <span>推送视频 / 图片到 Eagle</span>
+    </div>
+    <div class="pill"><span id="pluginDot" class="dot"></span><span id="pluginText">检测中…</span></div>
+  </div>
+
+  <!-- 网站 -->
+  <div class="sec">
+    <div class="sec-hd">网站支持<span class="line"></span><span class="note">页面按钮推送</span></div>
+
+    <div class="site" id="siteTwitter">
+      <div class="logo x">X</div>
+      <div class="si"><div class="sn">X / Twitter</div><div class="sd">推文操作栏按钮 · 点赞收藏推送</div></div>
+      <div class="tagcur">当前页面</div>
+    </div>
+
+    <div class="site" id="siteSankaku">
+      <div class="logo sk">S</div>
+      <div class="si"><div class="sn">Sankaku</div><div class="sd">右下角浮动按钮</div></div>
+      <div class="tagcur">当前页面</div>
+    </div>
+
+    <div class="site" id="siteXhs">
+      <div class="logo xhs">小</div>
+      <div class="si"><div class="sn">小红书</div><div class="sd">笔记页浮动按钮</div></div>
+      <div class="tagcur">当前页面</div>
+    </div>
+  </div>
+
+  <!-- 自动推送 -->
+  <div class="sec">
+    <div class="sec-hd">自动推送<span class="line"></span><span class="note">仅 X / Twitter</span></div>
+
+    <div class="row">
+      <div class="ri"><div class="rn">点赞时推送</div><div class="rd">点赞的推文自动加入 Eagle</div></div>
+      <label class="switch"><input type="checkbox" id="likePush" checked /><span class="slider"></span></label>
+    </div>
+
+    <div class="row">
+      <div class="ri"><div class="rn">收藏时推送</div><div class="rd">收藏的推文自动加入 Eagle</div></div>
+      <label class="switch"><input type="checkbox" id="bookmarkPush" checked /><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <!-- 局域网 -->
+  <div class="sec">
+    <div class="sec-hd">局域网发送<span class="line"></span><span id="lanCount" class="note">未扫描</span></div>
+    <select id="lanDevices" class="lan-select">
+      <option value="">尚未发现设备</option>
+    </select>
+    <div class="lan-actions">
+      <button id="lanSend" type="button">发送当前页面</button>
+      <button id="lanRefresh" class="secondary" type="button">扫描</button>
+    </div>
+    <p id="lanStatus" class="lan-status"></p>
+  </div>
+
+  <div class="foot">
+    <div class="fh">插件未运行时回退到 Eagle 本地 API，仅支持 mp4 直链。</div>
+    <button id="refresh" class="mini" type="button">重新检测</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

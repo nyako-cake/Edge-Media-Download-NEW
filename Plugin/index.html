@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>媒体下载器</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/preferences.css">
+  <style>
+    /* 仅补两处静态预览所需：面板显示切换、选项标签不折行 */
+    [hidden] { display: none !important; }
+    .label-item > label { white-space: nowrap; }
+    /* 分组折叠：成组用边框卡片包裹、行间用横线分隔，与账号资料卡一致；开关保持 32×20 不随行高拉伸 */
+    .panel-block .block-content .setting-card { border: 1px solid var(--color-border-secondary); border-radius: 8px; background-color: var(--color-white-3); margin: 10px 0 14px; padding: 0 12px; overflow: hidden; }
+    .panel-block .block-content .setting-card .label-item { padding: 10px 0; }
+    .sidebar-account { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; padding: 2px 8px 2px 2px; border: 1px solid var(--color-border-secondary); border-radius: 8px; background-color: var(--color-white-3); transition: margin 100ms var(--timing-function-super), padding 100ms var(--timing-function-super), gap 100ms var(--timing-function-super), background-color 100ms var(--timing-function-super), border-color 100ms var(--timing-function-super); }
+
+    .sidebar-account-avatar { box-sizing: border-box; width: 38px; height: 38px; border-radius: 9px; border: 1px solid var(--color-border-secondary); background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--color-text-secondary); flex: 0 0 auto; transition: width 100ms var(--timing-function-super), height 100ms var(--timing-function-super), border-radius 100ms var(--timing-function-super); }
+    .sidebar-account-body { flex: 1; min-width: 0; max-width: 200px; display: flex; flex-direction: column; gap: 1px; transition: max-width 100ms var(--timing-function-super); }
+.sidebar-account-right, .sidebar-account-name { transition: opacity 100ms var(--timing-function-super); }
+    .sidebar-account-name { min-width: 0; font-size: 12px; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar-account-right { min-width: 0; font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel-block .block-content .account-group { border: 1px solid var(--color-border-secondary); border-radius: 8px; background-color: var(--color-white-3); margin: 10px 0 14px; overflow: hidden; }
+    .panel-block .block-content .account-group .account-group-head { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; cursor: pointer; user-select: none; }
+    .panel-block .block-content .account-group .account-group-head:hover { opacity: .85; }
+    .panel-block .block-content .account-group .account-group-head.open { border-bottom: 1px solid var(--color-border-secondary); }
+    .panel-block .block-content .account-group-head .group-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+    .panel-block .block-content .account-group-head .group-chevron { margin-left: auto; display: flex; color: var(--color-text-secondary); transition: transform .2s ease; }
+    .panel-block .block-content .account-group-head.open .group-chevron { transform: rotate(180deg); }
+    .panel-block .block-content .account-group .label-item { padding: 6px 12px; border-top: 1px solid var(--color-border-secondary); }
+    .panel-block .block-content .account-group .label-item:first-child { border-top: none; }
+    .panel-block .block-content .account-group .account-chats { padding: 8px 12px 10px; }
+    .panel-block .block-content .label-item .right { align-items: center; }
+    .panel-block .block-content .label-item .right .toggle { flex: 0 0 auto; margin-top: 4px; }
+    /* 原生 .value 带 max-height:1em，中文行高被竖直裁切，按同选择器覆盖 */
+    .panel-block .block-content .list-item .right .value { max-height: none; line-height: 18px; }
+    /* 推特信息规则：名称 / 注释 / 标签 各一竖列，从左向右排布 */
+    .rule-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .panel-block .block-content .checkbox-items { display: flex; flex-direction: column; gap: 4px; }
+    .panel-block .block-content .checkbox-items .checkbox-item { width: auto; }
+    .panel-block .block-content .checkbox-items .checkbox-item label { white-space: nowrap; }
+    /* 复选框右侧拖动按钮 */
+    .rule-group .checkbox-items .checkbox-item { display: flex; align-items: center; gap: 6px; }
+    .rule-group .checkbox-items .checkbox-item label { flex: 1 1 auto; }
+    .drag-handle {
+      flex: 0 0 auto;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      cursor: grab;
+      opacity: .45;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 16px;
+      background-image: url("assets/images/dark/preferences/ic-drag.svg");
+    }
+    .drag-handle:hover { opacity: .85; }
+    .drag-handle:active { cursor: grabbing; }
+    body[theme=light] .drag-handle,
+    body[theme=lightgray] .drag-handle { background-image: url("assets/images/light/preferences/ic-drag.svg"); }
+    .rule-group .checkbox-item.dragging { opacity: .35; }
+    /* 列标题后的说明文字（点击展开/收起下方说明，默认折叠） */
+    .rule-desc {
+      font-size: 11px;
+      font-weight: normal;
+      color: var(--color-text-tertiary);
+      white-space: nowrap;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .rule-desc .fold-mark {
+      width: 13px;
+      height: 13px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      line-height: 1;
+      font-weight: var(--font-weight-bold);
+      color: var(--color-text-tertiary);
+      box-sizing: border-box;
+      transition: color 120ms ease;
+    }
+    .rule-group.hint-open .rule-desc .fold-mark {
+      width: 13px;
+      height: 13px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      line-height: 1;
+      font-weight: var(--font-weight-bold);
+      color: var(--color-text-tertiary);
+      box-sizing: border-box;
+      transition: color 120ms ease;
+    }
+    .rule-desc:hover .fold-mark { color: var(--color-text-secondary); }
+    .rule-desc:hover { color: var(--color-text-secondary); }
+    .rule-hint { display: none; }
+    .rule-group.hint-open .rule-hint { display: block; }
+    /* 推特信息规则标题右侧的恢复默认排序按钮 */
+    .rule-title { display: flex; align-items: center; }
+    .reset-order {
+      margin-left: auto;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: normal;
+      line-height: 22px;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 100ms ease, color 100ms ease;
+    }
+    .reset-order:hover {
+      background-color: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+    .reset-order:active { background-color: var(--color-bg-active); }
+    /* 标签列的关联按钮与关联框 */
+    .link-btn {
+      flex: 0 0 auto;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 22px;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 100ms ease, color 100ms ease;
+    }
+    .link-btn:hover {
+      background-color: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+    .checkbox-item.linked .link-btn { color: var(--color-brand); }
+    .checkbox-item.linking { outline: 1px dashed var(--color-brand); outline-offset: 2px; border-radius: 6px; }
+    .link-picking .checkbox-item:not(.linking) { border-radius: 6px; }
+    .link-picking .checkbox-item:not(.linking):hover { background-color: var(--color-bg-hover); }
+    /* 关联框：只紧密框住两个复选框方框本身，不包整行；绝对定位，不参与布局 */
+    .link-group {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin: 0 -3px;
+      padding: 0 3px;
+      border: 0;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    .link-frame {
+      position: absolute;
+      display: none;
+      border-radius: 6px;
+      box-shadow: inset 0 0 0 1px var(--color-border-primary);
+      pointer-events: none;
+    }
+    .link-group > .link-frame {
+      display: block;
+    }
+    .sidebar .sidebar-item .icon {
+      background-color: transparent;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 20px;
+      background-image: var(--icon-dark);
+    }
+    body[theme=light] .sidebar .sidebar-item .icon,
+    body[theme=lightgray] .sidebar .sidebar-item .icon { background-image: var(--icon-light); }
+
+
+    .sidebar { display: flex; flex-direction: column; overflow: hidden; width: 200px; box-sizing: border-box; transition: width 100ms var(--timing-function-super); }
+    .sidebar-items { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+    .sidebar .title { transition: opacity 100ms var(--timing-function-super); }
+    .sidebar:not(.collapsed) .title { transition: opacity 100ms var(--timing-function-super); }
+    .sidebar .sidebar-item .name {
+      flex: 0 0 auto;
+      white-space: nowrap;
+      transition: opacity 100ms var(--timing-function-super);
+    }
+    .sidebar .sidebar-footer {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      height: 60px;
+      margin: 8px 0 8px;
+      border-top: 1px solid var(--color-border-secondary);
+    }
+    .sidebar .collapse-btn {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      box-sizing: border-box;
+      gap: 6px;
+      height: 32px;
+      padding: 0 6px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 100ms var(--timing-function-super);
+    }
+    .sidebar .collapse-btn:hover { background-color: var(--color-bg-hover); }
+    .sidebar .collapse-btn .icon {
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 20px;
+      background-image: var(--icon-dark);
+    }
+    body[theme=light] .sidebar .collapse-btn .icon,
+    body[theme=lightgray] .sidebar .collapse-btn .icon { background-image: var(--icon-light); }
+    .sidebar .collapse-btn .name {
+      flex: 0 0 auto;
+      font-size: 13px;
+      line-height: 20px;
+      color: var(--color-text-primary);
+      white-space: nowrap;
+      transition: opacity 100ms var(--timing-function-super);
+    }
+    .sidebar.collapsed { width: 44px; }
+    .sidebar.collapsed .sidebar-item .name,
+    .sidebar.collapsed .collapse-btn .name { opacity: 0; }
+    .sidebar .title { position: relative; }
+    .sidebar .title-text { display: inline-flex; }
+    .sidebar .title-text .t-char { transition: opacity 100ms var(--timing-function-super); }
+    .sidebar .title-text .t-char:nth-child(1) { transition-delay: 130ms; }
+    .sidebar .title-text .t-char:nth-child(2) { transition-delay: 145ms; }
+    .sidebar .title-text .t-char:nth-child(3) { transition-delay: 160ms; }
+    .sidebar .title-text .t-char:nth-child(4) { transition-delay: 175ms; }
+    .sidebar .title-text .t-char:nth-child(5) { transition-delay: 190ms; }
+    .sidebar.collapsed .title-text .t-char { opacity: 0; }
+    .sidebar.collapsed .title-text .t-char:nth-child(1) { transition-delay: 0ms; }
+    .sidebar.collapsed .title-text .t-char:nth-child(2) { transition-delay: 15ms; }
+    .sidebar.collapsed .title-text .t-char:nth-child(3) { transition-delay: 30ms; }
+    .sidebar.collapsed .title-text .t-char:nth-child(4) { transition-delay: 45ms; }
+    .sidebar.collapsed .title-text .t-char:nth-child(5) { transition-delay: 60ms; }
+    .sidebar .title-compact {
+      display: grid; grid-template-columns: repeat(2, 11px); grid-auto-rows: 11px;
+      position: absolute; left: 5px; top: 50%; transform: translateY(-50%);
+      font-size: 11px; line-height: 11px; color: var(--color-text-primary);
+      justify-items: center; align-items: center;
+    }
+    .sidebar .title-compact span { opacity: 0; transition: opacity 100ms var(--timing-function-super); transition-delay: 0ms; }
+    .sidebar.collapsed .title-compact span { opacity: 1; }
+    .sidebar.collapsed .title-compact span:nth-child(1) { transition-delay: 130ms; }
+    .sidebar.collapsed .title-compact span:nth-child(2) { transition-delay: 155ms; }
+    .sidebar.collapsed .title-compact span:nth-child(3) { transition-delay: 180ms; }
+    .sidebar.collapsed .title-compact span:nth-child(4) { transition-delay: 205ms; }
+    .sidebar.collapsed .sidebar-account { margin: 2px 0 10px; padding: 2px 1px; border: 1px solid transparent; background-color: transparent; gap: 0; }
+    .sidebar.collapsed .sidebar-account-avatar { width: 28px; height: 28px; border-radius: 7px; }
+    .sidebar.collapsed .sidebar-account-body { flex: 0 0 auto; width: 0; min-width: 0; max-width: 0; overflow: hidden; }
+.sidebar.collapsed .sidebar-account-right { opacity: 0; }
+.sidebar.collapsed .sidebar-account-name { opacity: 0; transition-delay: 40ms; }
+    .sidebar .sidebar-item .icon { flex: 0 0 auto; }
+    /* 覆盖式滚动条：悬浮在内容之上，不占用布局宽度 */
+    .container { position: relative; }
+    #content {
+      overflow-y: scroll;              /* 始终保留滚动能力，避免出现/消失时宽度跳变 */
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    #content::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+    .content-scrollbar {
+      position: absolute; right: 2px; width: 6px;
+      z-index: 30; pointer-events: none;
+      opacity: 0; transition: opacity 140ms ease;
+    }
+    .content-scrollbar.is-visible { opacity: 1; }
+    .content-scrollbar .thumb {
+      width: 100%; border-radius: 4px;
+      background-color: var(--color-text-tertiary);
+      opacity: .5;
+    }
+    .container .footer { gap: 8px; }
+    .container .footer input[type="search"] { margin: 0; align-self: center; }
+    .container .footer .button { flex-shrink: 0; white-space: nowrap; height: 32px; }
+    .container .footer .button img { user-select: none; -webkit-user-drag: none; }
+    body[theme=light] .footer .paste-icon,
+    body[theme=lightgray] .footer .paste-icon {
+      content: url("assets/images/light/icons/context-menu/ic-tag-paste.svg");
+    }
+
+    /* 标题栏：置顶 */
+    .container .header .header-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+    .container .header .header-actions .close { margin-left: 0; }
+    .container .header .pin {
+      width: 24px; height: 24px; border-radius: 4px; opacity: .75; cursor: pointer;
+      background-repeat: no-repeat; background-position: center; background-size: 16px;
+      background-image: url("assets/images/dark/icons/ic-window-pin.svg");
+      transition: all 250ms ease; -webkit-app-region: no-drag;
+    }
+    body[theme=light] .container .header .pin,
+    body[theme=lightgray] .container .header .pin { background-image: url("assets/images/light/icons/ic-window-pin.svg"); }
+    .container .header .pin:hover { opacity: 1; background-color: var(--color-bg-hover); }
+    .container .header .pin.active {
+      opacity: 1; background-color: var(--color-bg-active);
+      background-image: url("assets/images/dark/icons/ic-window-unpin.svg");
+    }
+    body[theme=light] .container .header .pin.active,
+    body[theme=lightgray] .container .header .pin.active { background-image: url("assets/images/light/icons/ic-window-unpin.svg"); }
+    .container .header .min-btn {
+      width: 24px; height: 24px; border-radius: 4px; opacity: .75; cursor: pointer;
+      background-repeat: no-repeat; background-position: center; background-size: 16px;
+      background-image: url("assets/images/dark/icons/ic-windows-hide.svg");
+      transition: all 250ms ease; -webkit-app-region: no-drag;
+    }
+    body[theme=light] .container .header .min-btn,
+    body[theme=lightgray] .container .header .min-btn { background-image: url("assets/images/light/icons/ic-windows-hide.svg"); }
+    .container .header .min-btn:hover { opacity: 1; background-color: var(--color-bg-hover); }
+
+    /* 下载队列 */
+    .sidebar-account-sep { height: 1px; margin: 2px 0 8px; background-color: var(--color-border-secondary); }
+
+    .sound-row { align-items: center; gap: 8px; }
+    .sound-name { font-size: 12px; color: var(--color-text-secondary); max-width: 180px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .sound-pick { display: flex; align-items: center; height: 26px; padding: 0 10px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 12px; color: var(--color-text-secondary); transition: all 100ms var(--timing-function-super); }
+    .sound-pick:hover { background-color: var(--color-bg-hover); cursor: pointer; }
+
+    /* 下载面板：工具条固定，仅列表滚动 */
+    .container .content[data-panel="download"] { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 0; }
+    .container .content[data-panel="download"] > .panel-content[data-panel="download"] { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .container .content[data-panel="download"] .download-toolbar { flex: 0 0 auto; }
+    .container .content[data-panel="download"] .download-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 8px 16px; }
+
+    .download-list { display: flex; flex-direction: column; overflow-x: hidden; }
+
+    /* 队列工具条：筛选分段 + 全部开始 / 全部暂停 */
+    .download-toolbar { display: flex; align-items: center; gap: 8px; padding: 0 0 10px; position: relative; z-index: 1; -webkit-app-region: no-drag; }
+    .download-toolbar .segmented {
+      display: flex; align-items: center; gap: 2px; height: 28px; padding: 2px;
+      border: 1px solid var(--color-border-secondary); border-radius: 6px;
+      background-color: var(--color-white-3);
+      -webkit-app-region: no-drag;
+    }
+    .download-toolbar .segment {
+      display: flex; align-items: center; height: 22px; padding: 0 10px; border-radius: 4px;
+      font-size: 12px; line-height: 22px; color: var(--color-text-secondary);
+      cursor: pointer; user-select: none;
+      transition: all 100ms var(--timing-function-super);
+      -webkit-app-region: no-drag; pointer-events: auto;
+    }
+    .download-toolbar .segment:hover { color: var(--color-text-primary); background-color: var(--color-bg-hover); }
+    .download-toolbar .segment .seg-count {
+      margin-left: 4px; font-size: 11px; line-height: 22px; font-weight: 400;
+      color: var(--color-text-tertiary);
+    }
+    .download-toolbar .segment.active .seg-count { color: var(--color-text-secondary); }
+    .download-toolbar .segment.active {
+      color: var(--color-text-primary); font-weight: var(--font-weight-medium);
+      background-color: var(--color-bg-active);
+      box-shadow: inset 0 0 0 1px var(--color-border-secondary);
+    }
+    .download-toolbar .toolbar-btn {
+      display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+      border: 1px solid var(--color-border-primary); border-radius: 6px;
+      font-size: 12px; color: var(--color-text-primary); cursor: pointer; user-select: none;
+      transition: all 100ms var(--timing-function-super);
+      -webkit-app-region: no-drag; pointer-events: auto;
+    }
+    .download-toolbar .toolbar-btn:hover { background-color: var(--color-bg-hover); }
+    .download-toolbar .toolbar-btn:active { background-color: var(--color-bg-active); }
+    .download-toolbar .toolbar-btn svg { width: 14px; height: 14px; flex: 0 0 auto; opacity: .9; }
+    .download-toolbar #queueStartAll { margin-left: auto; }
+    .download-item.filtered-out { display: none; }
+    #downloadEmpty { pointer-events: none; }
+
+    .download-item {
+      position: relative; display: flex; flex-direction: column; gap: 6px;
+      padding: 10px 8px; margin: 0 -8px; border-radius: 6px;
+      border-bottom: 1px solid var(--color-border-secondary);
+      --bar-color: var(--color-primary);
+      transition: background-color 100ms var(--timing-function-super);
+    }
+    .download-item:last-child { border-bottom: 0; }
+    .download-item:hover { background-color: var(--color-bg-hover); }
+    .download-item.completed { --bar-color: var(--color-positive); }
+    .download-item.error { --bar-color: var(--color-negative); }
+    .download-item .item-title {
+      font-size: 13px; line-height: 1.45; color: var(--color-text-primary);
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      word-break: break-word; padding-right: 24px;
+    }
+    /* 私信来源：好友头像 + 昵称 */
+    .download-item .item-from {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; line-height: 16px; color: var(--color-text-tertiary);
+      margin-bottom: 1px;
+    }
+    .download-item .item-from img {
+      width: 16px; height: 16px; border-radius: 50%; object-fit: cover; flex: 0 0 auto;
+      background-color: var(--color-bg-hover);
+    }
+    .download-item .item-progress { height: 4px; border-radius: 999px; background-color: var(--color-bg-hover); overflow: hidden; }
+    .download-item .item-progress .bar {
+      height: 100%; width: 0; border-radius: 999px; background-color: var(--bar-color);
+      transition: width 200ms ease;
+    }
+    /* 完成 / 失败后不再保留整条进度条，只留状态文字，和 Eagle 列表一致 */
+    .download-item.completed .item-progress,
+    .download-item.error .item-progress { display: none; }
+    /* 取不到百分比时用滑动条表示仍在进行 */
+    .download-item.indeterminate .item-progress .bar {
+      width: 35% !important; animation: item-progress-slide 1.1s ease-in-out infinite;
+    }
+    @keyframes item-progress-slide {
+      0% { margin-left: -35%; }
+      100% { margin-left: 100%; }
+    }
+    .download-item .item-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; min-height: 18px; color: var(--color-text-secondary); min-width: 0; }
+    .download-item .item-status {
+      flex: 0 1 auto; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .download-item .item-eta { flex: 0 1 auto; min-width: 0; color: var(--color-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .download-item.completed .item-status { color: var(--color-positive); }
+    .download-item.error .item-status,
+    .download-item.error .item-eta { color: var(--color-negative); }
+    .download-item .item-actions { margin-left: auto; flex: 0 0 auto; white-space: nowrap; display: flex; gap: 2px; }
+    .download-item .item-actions .link-btn { flex: 0 0 auto; height: 22px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 22px; color: var(--color-text-tertiary); cursor: pointer; user-select: none; transition: all 100ms var(--timing-function-super); }
+    .download-item .item-actions .link-btn:hover { background-color: var(--color-bg-active); color: var(--color-text-primary); }
+
+    /* 依赖条目 */
+    .dep-actions { display: flex; gap: 8px; padding-top: 8px; }
+    .dep-actions .dep-btn, .account-row .dep-btn {
+      display: flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 6px;
+      border: 1px solid var(--color-border-primary); font-size: 12px; color: var(--color-text-primary);
+      cursor: pointer; user-select: none; transition: background-color 120ms ease;
+    }
+    .dep-actions .dep-btn:hover, .account-row .dep-btn:hover { background-color: var(--color-bg-hover); }
+    .dep-actions .dep-btn.primary, .account-row .dep-btn.primary { border-color: transparent; background-color: var(--color-brand); color: #fff; }
+    .dep-actions .dep-btn.primary:hover { filter: brightness(1.06); }
+    .dep-actions .dep-btn[disabled] { opacity: .45; cursor: default; }
+    .dep-progress { height: 4px; margin-top: 6px; border-radius: 999px; background-color: var(--color-bg-hover); overflow: hidden; }
+    .dep-progress .bar { height: 100%; width: 0; border-radius: 999px; background-color: var(--color-brand); transition: width 200ms ease; }
+    .list-item .right .value.dep-state { color: var(--color-text-secondary); }
+    .list-item .right .value.dep-state.ok { color: #30D159; }
+    body[theme=light] .list-item .right .value.dep-state.ok,
+    body[theme=lightgray] .list-item .right .value.dep-state.ok { color: #2A9E4B; }
+    .list-item .right .value.dep-state.warn { color: #E8A13A; }
+    body[theme=light] .list-item .right .value.dep-state.warn,
+    body[theme=lightgray] .list-item .right .value.dep-state.warn { color: #C07A12; }
+
+    /* 账号：操作行 */
+    .container .footer .account-status { font-size: 12px; color: var(--color-text-tertiary); }
+    .account-row { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+    .account-row .account-status { margin-left: 0; }
+
+    .panel-content[data-panel="account"] .block-content .checkbox-items { flex-direction: row; flex-wrap: wrap; }
+    /* 导航切换动效：面板淡入 + 激活图标轻微放大 */
+    /* 账号头像 + 名称 */
+    .account-profile { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; }
+    .account-avatar {
+      flex: 0 0 auto; width: 32px; height: 32px; box-sizing: border-box; border-radius: 50%; border: 1px solid var(--color-border-primary);
+      background-color: var(--color-bg-hover);
+      background-repeat: no-repeat; background-position: center; background-size: 20px 20px;
+      background-image: url("assets/images/dark/preferences/ic-avatar.svg");
+    }
+    body[theme=light] .account-avatar, body[theme=lightgray] .account-avatar {
+      background-image: url("assets/images/light/preferences/ic-avatar.svg");
+    }
+    .account-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .account-name { font-size: 13px; font-weight: var(--font-weight-bold); line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account-status { font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
+    .account-profile {
+      padding: 10px 12px;
+      margin: 10px 0 14px;
+      border: 1px solid var(--color-border-secondary);
+      border-radius: 8px;
+      background-color: var(--color-white-3);
+    }
+    .account-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 1px solid var(--color-border-primary);
+      background-size: cover; background-position: center; background-repeat: no-repeat;
+    }
+    .account-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .account-field-wide { grid-column: 1 / -1; }
+    .account-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .account-field > label {
+      font-size: 12px; line-height: 16px;
+      color: var(--color-text-tertiary);
+      white-space: nowrap;
+    }
+    .account-field input {
+      width: 100%; height: 32px; box-sizing: border-box;
+      padding: 0 8px;
+      font-size: 13px;
+      color: var(--color-text-primary);
+      background-color: var(--color-white-3);
+      border: 1px solid var(--color-border-secondary);
+      border-radius: 6px;
+      outline: none;
+    }
+    .account-field input:focus { border-color: var(--color-primary); }
+    .account-actions { display: flex; align-items: center; gap: 8px; }
+    .account-actions .button {
+      height: 32px; padding: 0 14px;
+      display: flex; align-items: center;
+      font-size: 13px;
+      color: var(--color-text-primary);
+      background-color: transparent;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 6px;
+    }
+    .account-actions .button:hover { background-color: var(--color-bg-hover); }
+    .account-actions .button-danger {
+      color: var(--color-negative);
+      border-color: color-mix(in srgb, var(--color-negative) 55%, transparent);
+    }
+    .account-actions .button-danger:hover {
+      background-color: color-mix(in srgb, var(--color-negative) 12%, transparent);
+    }
+    .account-actions .account-status { margin-left: 4px; }
+    .account-profile-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .account-logout {
+      height: 26px; padding: 0 10px;
+      display: flex; align-items: center;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      background-color: transparent;
+      border: 1px solid var(--color-border-secondary);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .account-logout:hover { background-color: var(--color-bg-hover); }
+    .account-toggle {
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--color-text-tertiary);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .account-toggle:hover { background-color: var(--color-bg-hover); color: var(--color-text-primary); }
+    .account-toggle svg { transition: transform 120ms ease; }
+    .account-toggle.is-expanded svg { transform: rotate(180deg); }
+    .account-catchup { margin-top: 12px; }
+
+    /* 选择聊天：好友头像 + 勾选，只抓所选会话 */
+    .account-chats { margin-top: 12px; }
+    .account-chats .chats-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px; font-size: 13px; color: var(--color-text-primary);
+    }
+    .account-chats .chats-head .dep-btn {
+      height: 26px; padding: 0 10px;
+      display: flex; align-items: center;
+      font-size: 12px; color: var(--color-text-secondary);
+      border: 1px solid var(--color-border-secondary); border-radius: 6px;
+      cursor: pointer;
+    }
+    .account-chats .chats-head .dep-btn:hover { background-color: var(--color-bg-hover); }
+    .account-chats .chats-head .dep-btn.is-loading { opacity: .55; pointer-events: none; }
+    .account-chats .chat-list {
+      max-height: 198px; overflow-y: auto;
+      border: 1px solid var(--color-border-secondary);
+      border-radius: 8px; padding: 4px;
+      background-color: var(--color-white-3);
+      scrollbar-width: none;
+    }
+    .account-chats .chat-list::-webkit-scrollbar { width: 0; height: 0; display: none; }
+    .account-chats .chat-empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 46px; font-size: 12px; color: var(--color-text-tertiary);
+    }
+    .chat-item {
+      display: flex; align-items: center; gap: 8px;
+      height: 32px; padding: 0 6px; border-radius: 6px;
+      font-size: 12px; cursor: pointer;
+    }
+    .chat-item:hover { background-color: var(--color-bg-hover); }
+    .chat-item input {
+      position: absolute; opacity: 0; pointer-events: none;
+      width: 14px; height: 14px; margin: 0;
+    }
+    .chat-item .chat-check {
+      width: 14px; height: 14px; flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 3px;
+      background-color: transparent;
+      transition: background-color 100ms var(--timing-function-super);
+    }
+    .chat-item .chat-check::after {
+      content: ""; width: 7px; height: 3px;
+      border-left: 2px solid #fff; border-bottom: 2px solid #fff;
+      transform: rotate(-45deg) translateY(-1px);
+      opacity: 0;
+    }
+    .chat-item input:checked + .chat-check {
+      background-color: var(--color-primary);
+      border-color: transparent;
+    }
+    .chat-item input:checked + .chat-check::after { opacity: 1; }
+    .chat-item input:focus-visible + .chat-check { box-shadow: 0 0 0 2px var(--color-bg-active); }
+    .chat-item img {
+      width: 18px; height: 18px; border-radius: 50%; object-fit: cover; flex: 0 0 auto;
+      background-color: var(--color-bg-hover);
+    }
+    .chat-item .chat-name {
+      flex: 1 1 auto; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--color-text-primary);
+    }
+    .chat-item .chat-handle { flex: 0 0 auto; font-size: 11px; color: var(--color-text-tertiary); }
+
+    @keyframes panel-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    .panel-content.panel-in { animation: panel-in 180ms ease; }
+    .sidebar .sidebar-item .icon { transition: transform 120ms ease; }
+    .sidebar .sidebar-item.active .icon { transform: scale(1.06); }
+  </style>
+  <link rel="stylesheet" href="window-drag.css">
+<style>
+  .panel-block .block-content .label-item .right .dep-btn { display: flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--color-border-primary); font-size: 12px; color: var(--color-text-primary); cursor: pointer; user-select: none; transition: background-color 120ms ease; }
+  .panel-block .block-content .label-item .right .dep-btn:hover { background-color: var(--color-bg-hover); }
+</style></head>
+<body theme="gray" platform="win32" class="zh_CN theme-gray">
+<script>
+(function () {
+  try {
+    (function () {
+      try {
+        var OLD = "eagle-video-downloader.";
+        var NEW = "Edge-Media-Download-NEW.";
+        for (var i = localStorage.length - 1; i >= 0; i--) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf(OLD) === 0) {
+            var nk = NEW + k.slice(OLD.length);
+            if (localStorage.getItem(nk) === null) localStorage.setItem(nk, localStorage.getItem(k));
+            localStorage.removeItem(k);
+          }
+        }
+      } catch (e) {}
+    })();    
+    var KEY = "Edge-Media-Download-NEW.theme";
+    var FOLLOW = "Edge-Media-Download-NEW.followEagleTheme";
+    var ok = ["light", "lightgray", "gray", "dark", "blue", "purple"];
+    var name = "gray";
+    var follow = localStorage.getItem(FOLLOW);
+    var manual = localStorage.getItem(KEY);
+    if (follow === "false") {
+      name = ok.indexOf(manual) >= 0 ? manual : "gray";
+    } else {
+      var map = { LIGHT: "light", LIGHTGRAY: "lightgray", GRAY: "gray", DARK: "dark", BLUE: "blue", PURPLE: "purple" };
+      var theme = "";
+      try { theme = String((window.eagle && window.eagle.app && window.eagle.app.theme) || "").toUpperCase(); } catch (e) {}
+      if (!theme || theme === "AUTO") {
+        var dark = true;
+        try { if (window.eagle && window.eagle.app && window.eagle.app.isDarkColors) dark = !!window.eagle.app.isDarkColors(); } catch (e2) { dark = true; }
+        name = dark ? "gray" : "light";
+      } else {
+        name = map[theme] || "gray";
+      }
+    }
+    document.body.setAttribute("theme", name);
+    document.body.className = document.body.className.replace(/theme-\w+/g, "theme-" + name);
+    /* 窗口底色先对齐页面底色，避免宿主窗口按 Eagle 主题着色时先露一帧异色。
+       取值来自 base.css 的 --color-theme-* 变量 */
+    var bg = { light: "#f3f4f6", lightgray: "#e3e4e6", gray: "#37383c", dark: "#18191c", blue: "#0d1630", purple: "#1C1424" }[name];
+    if (bg && window.eagle && eagle.window && typeof eagle.window.setBackgroundColor === "function") {
+      try { eagle.window.setBackgroundColor(bg); } catch (e3) {}
+    }
+  } catch (err) {}
+  /* 窗口在 manifest 里以 show:false 创建，这里等首帧画好再显示，彻底避免加载期的底色闪动 */
+  var shown = false;
+  function reveal() {
+    if (shown) return;
+    shown = true;
+    try {
+      if (window.eagle && eagle.window && typeof eagle.window.show === "function") {
+        var task = eagle.window.show();
+        if (task && typeof task.catch === "function") task.catch(function () {});
+      }
+    } catch (e4) {}
+  }
+  function revealAfterPaint() {
+    if (window.requestAnimationFrame) { requestAnimationFrame(function () { requestAnimationFrame(reveal); }); }
+    else { setTimeout(reveal, 16); }
+  }
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", revealAfterPaint); }
+  else { revealAfterPaint(); }
+  window.addEventListener("load", reveal);
+  setTimeout(reveal, 600);
+})();
+</script>
+
+  <div class="preferences-layout">
+    <div class="sidebar">
+      <div class="title">
+        <span class="title-text"><span class="t-char">媒</span><span class="t-char">体</span><span class="t-char">下</span><span class="t-char">载</span><span class="t-char">器</span></span>
+        <div class="title-compact" aria-hidden="true"><span>媒</span><span>体</span><span>下</span><span>载</span></div>
+      </div>
+      <div class="sidebar-account" id="downloadAccount">
+        <div class="sidebar-account-avatar" id="downloadAccountAvatar"></div>
+        <div class="sidebar-account-body">
+          <div class="sidebar-account-right" id="downloadAccountRight"></div>
+          <div class="sidebar-account-name" id="downloadAccountName">未连接推特账号</div>
+        </div>
+      </div>
+      <div class="sidebar-account-sep" id="sidebarAccountSep"></div>
+      <div class="sidebar-items">
+        <div class="sidebar-item active" data-view="download" title="下载列表">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-download.svg); --icon-light: url(assets/images/light/preferences/ic-download.svg);"></div>
+          <div class="name">下载列表</div>
+        </div>
+        <div class="separator"></div>
+        <div class="sidebar-item" data-view="settings" title="下载设置">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-general.svg); --icon-light: url(assets/images/light/preferences/ic-general.svg);"></div>
+          <div class="name">下载设置</div>
+        </div>
+        <div class="sidebar-item" data-view="theme" title="外观">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-theme.svg); --icon-light: url(assets/images/light/preferences/ic-theme.svg);"></div>
+          <div class="name">外观</div>
+        </div>
+        <div class="sidebar-item" data-view="tags" title="导入信息">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-autoimport.svg); --icon-light: url(assets/images/light/preferences/ic-autoimport.svg);"></div>
+          <div class="name">导入信息</div>
+        </div>
+        <div class="sidebar-item" data-view="dependencies" title="依赖">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-developer.svg); --icon-light: url(assets/images/light/preferences/ic-developer.svg);"></div>
+          <div class="name">依赖</div>
+        </div>
+        <div class="sidebar-item" data-view="account" title="账号">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-lock.svg); --icon-light: url(assets/images/light/preferences/ic-lock.svg);"></div>
+          <div class="name">账号</div>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="collapse-btn" id="collapseBtn" title="收纳侧栏" role="button" tabindex="0">
+          <div class="icon" style="--icon-dark: url(assets/images/dark/preferences/ic-sidebar.svg); --icon-light: url(assets/images/light/preferences/ic-sidebar.svg);"></div>
+          <div class="name">收纳侧栏</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="header">
+        <div class="panel-title" id="panelTitle">下载列表</div>
+        <div class="header-actions">
+          <div class="pin" id="pinBtn" title="窗口置顶" role="button" tabindex="0"></div>
+          <div class="min-btn" id="minimizeBtn" title="最小化" role="button" tabindex="0"></div>
+          <div class="close" id="closeButton" title="关闭"></div>
+        </div>
+      </div>
+
+      <div class="content" id="content">
+
+        <!-- 下载列表 -->
+        <div class="panel-content" data-panel="download">
+          <div class="download-toolbar">
+            <div class="segmented" id="downloadFilter" role="tablist">
+              <div class="segment active" data-filter="all" role="tab" aria-selected="true"><span class="seg-label">全部</span><span class="seg-count">0</span></div>
+              <div class="segment" data-filter="active" role="tab" aria-selected="false"><span class="seg-label">下载中</span><span class="seg-count">0</span></div>
+              <div class="segment" data-filter="completed" role="tab" aria-selected="false"><span class="seg-label">完成</span><span class="seg-count">0</span></div>
+              <div class="segment" data-filter="error" role="tab" aria-selected="false"><span class="seg-label">下载失败</span><span class="seg-count">0</span></div>
+            </div>
+            <div class="toolbar-btn" id="queueStartAll" role="button" tabindex="0">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5 12 8 5 12.5Z"/></svg>
+              <span>全部开始</span>
+            </div>
+            <div class="toolbar-btn" id="queuePauseAll" role="button" tabindex="0">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>
+              <span>全部暂停</span>
+            </div>
+          </div>
+          <div class="download-list" id="downloadList"></div>
+          <div class="panel-empty" id="downloadEmpty">
+            <div class="title">暂无下载任务</div>
+            <p>粘贴视频链接后，任务会出现在这里</p>
+          </div>
+        </div>
+
+        <!-- 通用 -->
+        <div class="panel-content" data-panel="settings" hidden>
+          
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title">下载</div>
+
+              <div class="checkbox-item">
+                <label class="control checkbox">
+                  <input type="checkbox" checked id="autoAddSourceToggle">
+                  <span class="control-indicator"></span>
+                  自动设置 Eagle 数据来源
+                </label>
+              </div>
+
+              <div class="block-hint">
+                <p>开启后会把原始网页地址自动写入 Eagle 素材的来源字段</p>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label for="maxResolution">清晰度上限</label>
+                <div class="right">
+                  <div class="select">
+                    <select id="maxResolution">
+                      <option value="auto">自动（最高画质）</option>
+                      <option value="2160">4K（2160p）</option>
+                      <option value="1440">2K（1440p）</option>
+                      <option value="1080">1080p</option>
+                      <option value="720">720p</option>
+                      <option value="480">480p</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label for="maxFramerate">帧率上限</label>
+                <div class="right">
+                  <div class="select">
+                    <select id="maxFramerate">
+                      <option value="auto">自动（最高帧率）</option>
+                      <option value="60">60 帧</option>
+                      <option value="30">30 帧</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+                          </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="label-item">
+                <label for="downloadSoundToggle">加入列表音效</label>
+                <div class="right">
+                  <label class="toggle">
+                    <input type="checkbox" id="downloadSoundToggle" checked>
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="block-hint">
+                <p>链接加入下载列表时播放提示音</p>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label>自定义音效</label>
+                <div class="right sound-row">
+                  <span id="customSoundName" class="sound-name">默认音效</span>
+                  <div class="sound-pick" id="pickSoundBtn" role="button" tabindex="0">选择文件</div>
+                  <div class="sound-pick" id="resetSoundBtn" role="button" tabindex="0">恢复默认</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="label-item">
+                <label for="concurrency">同时下载数量</label>
+                <div class="right">
+                  <div class="select">
+                    <select id="concurrency">
+                      <option value="3">3</option>
+                      <option value="6">6</option>
+                      <option value="9">9</option>
+                      <option value="16">16</option>
+                      <option value="32">32</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="label-item">
+                <label for="threadCount">下载线程数</label>
+                <div class="right">
+                  <div class="select">
+                    <select id="threadCount">
+                      <option value="auto">自动（默认）</option>
+                      <option value="8">8</option>
+                      <option value="16">16</option>
+                      <option value="32">32</option>
+                      <option value="64">64</option>
+                      <option value="128">128</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="block-hint">
+                <p>HLS/DASH 分片并发数，并非总是更快，直连 MP4 仍为单连接</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 导入信息 -->
+        <div class="panel-content" data-panel="tags" hidden>
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title">导入信息规则</div>
+
+              <div class="checkbox-item">
+                <label class="control checkbox">
+                  <input type="checkbox" checked id="xhsTagsToggle">
+                  <span class="control-indicator"></span>
+                  小红书标签
+                </label>
+              </div>
+
+              <div class="block-hint">
+                <p>把小红书笔记话题写入 Eagle 标签，关闭后导入不带标签</p>
+                <p>标签在下载完成导入 Eagle 时写入：小红书笔记写入话题标签，其他站点写入站点标识，单次导入最多 30 个标签</p>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="checkbox-item">
+                <label class="control checkbox">
+                  <input type="checkbox" checked id="xhsMultiFileToggle">
+                  <span class="control-indicator"></span>
+                  多图区分
+                </label>
+              </div>
+
+              <div class="block-hint">
+                <p>同一篇笔记产出多个图片或视频时，在名称后追加 “(1/N)” 以免重名</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title rule-title">
+                <span>推特信息规则</span>
+                <div class="reset-order" id="resetOrder" role="button" tabindex="0">恢复默认</div>
+              </div>
+
+              <div class="rule-groups">
+                <div class="rule-group">
+                  <div class="block-title">名称<span class="rule-desc" role="button" tabindex="0" aria-expanded="false"><span class="fold-mark">?</span></span></div>
+                  <div class="checkbox-items" id="twNameFields">
+                <div class="checkbox-item" data-field="authorId">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    推特 ID
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="tweetId">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    推文 ID
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="screenName">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    用户名
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="text">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    正文
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="name">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    全名
+                  </label>
+                </div>
+                  </div>
+                  <div class="block-hint rule-hint">
+                    <p>名称：字段按你调整后的顺序用「 - 」连接，超过 150 个字符截断；文件名非法字符会被替换。</p>
+                  </div>
+                </div>
+
+                <div class="rule-group">
+                  <div class="block-title">注释<span class="rule-desc" role="button" tabindex="0" aria-expanded="false"><span class="fold-mark">?</span></span></div>
+                  <div class="checkbox-items" id="twAnnotationFields">
+                <div class="checkbox-item" data-field="authorId">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    推特 ID
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="tweetId">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    推文 ID
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="screenName">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    用户名
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="text">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    正文
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="name">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    全名
+                  </label>
+                </div>
+                  </div>
+                  <div class="block-hint rule-hint">
+                    <p>注释：按你调整后的顺序用「 - 」连接，超过 5000 个字符截断；勾选任意字段后注释只由勾选的字段组成，不再自动带推文正文，想保留正文请勾选「正文」。</p>
+                  </div>
+                </div>
+
+                <div class="rule-group">
+                  <div class="block-title">标签<span class="rule-desc" role="button" tabindex="0" aria-expanded="false"><span class="fold-mark">?</span></span></div>
+                  <div class="checkbox-items" id="twTagFields">
+                <div class="checkbox-item" data-field="authorId">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    推特 ID
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="tweetId">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    推文 ID
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="screenName">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    用户名
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="text">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    正文
+                  </label>
+                </div>
+                <div class="checkbox-item" data-field="name">
+                  <label class="control checkbox">
+                    <input type="checkbox">
+                    <span class="control-indicator"></span>
+                    全名
+                  </label>
+                </div>
+                  </div>
+                  <div class="block-hint rule-hint">
+                    <p>标签：每个勾选的字段各自成为一条独立标签，按调整后的顺序排在该站点标签之后，单条标签超过 100 个字符截断。上下两条都勾选时，两行之间会出现「合并」按钮，点一下把这两条合并成一条标签（用「 - 」连接）。</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="checkbox-item">
+                <label class="control checkbox">
+                  <input type="checkbox" checked id="twMultiFileToggle">
+                  <span class="control-indicator"></span>
+                  多文件区分
+                </label>
+              </div>
+
+              <div class="block-hint">
+                <p>一条推文产出多个图片或视频时，在名称后追加 “(1/N)”</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 依赖 -->
+        <div class="panel-content" data-panel="dependencies" hidden>
+          <div class="panel-block">
+            <div class="block-content">
+
+
+              <div class="list-item">
+                <span>yt-dlp</span>
+                <div class="right">
+                  <span class="value dep-state ok" id="ytdlpState">已是最新版</span>
+                </div>
+              </div>
+              <div class="dep-progress" id="ytdlpProgress" hidden><div class="bar" id="ytdlpBar"></div></div>
+
+              <div class="block-hint">
+                <p>视频解析与下载引擎。首次使用会自动下载，也可手动检查更新或重新安装</p>
+              </div>
+
+              <div class="dep-actions">
+                <div class="dep-btn" id="ytdlpCheck" role="button" tabindex="0">检查更新</div>
+                <div class="dep-btn" id="ytdlpReinstall" role="button" tabindex="0">重新安装</div>
+                <div class="dep-btn" id="ytdlpUninstall" role="button" tabindex="0">卸载</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="list-item">
+                <span>ffmpeg</span>
+                <div class="right">
+                  <span class="value dep-state" id="ffmpegState">Eagle 内置</span>
+                </div>
+              </div>
+              <div class="dep-progress" id="ffmpegProgress" hidden><div class="bar" id="ffmpegBar"></div></div>
+
+              <div class="block-hint">
+                <p>视频合并与转码引擎。由 Eagle 管理，通常无需手动操作，仅支持音视频合并</p>
+              </div>
+
+              <div class="dep-actions">
+                <div class="dep-btn" id="ffmpegCheck" role="button" tabindex="0">检查更新</div>
+                <div class="dep-btn" id="ffmpegReinstall" role="button" tabindex="0">安装 FFmpeg 依赖</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 账号 -->
+        <div class="panel-content" data-panel="account" hidden>
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title">推特 / X 账号</div>
+
+              <div class="block-hint">
+                <p>从已登录 x.com 的浏览器 Cookie 里复制 auth_token 和 ct0 两个值。</p>
+              </div>
+
+              <div class="account-profile" id="twitterProfileCard">
+                <div class="account-avatar" id="twitterAvatar"></div>
+                <div class="account-info">
+                  <div class="account-name" id="twitterName">未连接账号</div>
+                  <div class="account-status" id="twitterHandle">未连接 · 保存 Cookie 后显示真实头像与名称</div>
+                </div>
+                <div class="account-profile-actions">
+                  <div class="button account-logout" id="twitterClear" role="button" tabindex="0" hidden>登出</div>
+                  <div class="account-toggle" id="accountToggle" role="button" tabindex="0" title="展开 / 收起 Cookie 输入">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div class="account-editor" id="cookieEditor">
+                <div class="account-fields">
+                  <div class="account-field">
+                    <label for="authToken">auth_token</label>
+                    <input type="password" id="authToken" placeholder="auth_token" spellcheck="false" autocomplete="off">
+                  </div>
+                  <div class="account-field">
+                    <label for="ct0">ct0</label>
+                    <input type="password" id="ct0" placeholder="ct0" spellcheck="false" autocomplete="off">
+                  </div>
+                  <div class="account-field account-field-wide">
+                    <label for="chatPasscode">聊天密码（X Chat）</label>
+                    <input type="password" id="chatPasscode" placeholder="X Chat 解锁密码，可留空" spellcheck="false" autocomplete="off">
+                  </div>
+                </div>
+
+                <div class="account-actions">
+                  <div class="button" id="twitterSave">保存</div>
+                  <div class="account-status" id="twitterAuthStatus">未保存 Cookie</div>
+                </div>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="account-group">
+                <div class="account-group-head" data-target="twitterLikesSection" role="button" tabindex="0" aria-expanded="false">
+                <div class="group-title">点赞与收藏抓取</div>
+                <div class="group-chevron">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                </div>
+              </div>
+
+              <div id="twitterLikesSection" hidden>
+                <div class="label-item">
+                  <label for="twitterMonitorLikes">抓取点赞</label>
+                  <div class="right">
+                    <label class="toggle">
+                      <input type="checkbox" id="twitterMonitorLikes" checked>
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="label-item">
+                  <label for="twitterMonitorBookmarks">抓取收藏</label>
+                  <div class="right">
+                    <label class="toggle">
+                      <input type="checkbox" id="twitterMonitorBookmarks" checked>
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="label-item">
+                  <label for="monitorInterval">抓取间隔</label>
+                  <div class="right">
+                    <div class="select">
+                      <select id="monitorInterval">
+                        <option value="0">关闭</option>
+                        <option value="0.5">30 秒</option>
+                        <option value="1">1 分钟</option>
+                        <option value="2">2 分钟</option>
+                        <option value="5">5 分钟</option>
+                        <option value="10" selected>10 分钟</option>
+                        <option value="30">30 分钟</option>
+                        <option value="60">1 小时</option>
+                        <option value="180">3 小时</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </div>
+
+              <div class="account-group">
+                <div class="account-group-head" data-target="twitterDmSection" role="button" tabindex="0" aria-expanded="false">
+                <div class="group-title">好友抓取</div>
+                <div class="group-chevron">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                </div>
+              </div>
+
+              <div id="twitterDmSection" hidden>
+                <div class="block-hint" style="padding-bottom:8px">
+                  <p>定时检查好友私信里分享的视频链接，命中后自动加入下载列表；同一链接只抓一次</p>
+                </div>
+
+                <div class="label-item" hidden>
+                  <label for="twitterMonitorDm">识别聊天链接</label>
+                  <div class="right">
+                    <label class="toggle">
+                      <input type="checkbox" id="twitterMonitorDm" checked>
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="account-chats">
+                  <div class="chats-head">
+                    <label>选择聊天</label>
+                    <div class="dep-btn" id="chatRefresh" role="button" tabindex="0">刷新列表</div>
+                  </div>
+                  <div class="chat-list" id="chatList"></div>
+                  <div class="block-hint">
+                    <p id="chatHint">不勾选时扫描全部好友私信，勾选后只检查所选聊天</p>
+                  </div>
+                </div>
+
+                <div class="label-item">
+                  <label for="dmMonitorInterval">好友抓取间隔</label>
+                  <div class="right">
+                    <div class="select">
+                      <select id="dmMonitorInterval">
+                        <option value="2">2 分钟</option>
+                        <option value="4">4 分钟</option>
+                        <option value="6">6 分钟</option>
+                        <option value="8">8 分钟</option>
+                        <option value="10">10 分钟</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </div>
+
+              <div class="block-hint">
+                <p id="monitorStatus">获取已开启：每 10 分钟检查一次</p>
+                <p id="monitorLastRun">最近抓取：—</p>
+              </div>
+
+              <div class="account-actions account-catchup">
+                <div class="button button-grey" id="monitorTest">抓取测试</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title">Sankaku 账号</div>
+
+              <div class="label-item">
+                <label for="sankakuToken">accessToken</label>
+                <div class="right">
+                  <input type="password" id="sankakuToken" placeholder="accessToken" spellcheck="false" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="block-hint">
+                <p>填入已登录 sankaku.app 会话中的 accessToken，可下载仅登录可见的帖子</p>
+              </div>
+
+              <div class="account-row" style="padding-top:10px">
+                <div class="dep-btn primary" id="sankakuSave" role="button" tabindex="0">保存</div>
+                <div class="dep-btn" id="sankakuClear" role="button" tabindex="0">清除</div>
+                <span class="account-status" id="sankakuAuthStatus">未保存 accessToken</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+              <div class="panel-content" data-panel="theme" hidden>
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title">外观</div>
+
+              <div class="label-item">
+                <label>主题</label>
+                <div class="right">
+                  <div class="themes-picker" id="themePicker">
+                    <div class="theme light" data-theme="light" title="浅色"></div>
+                    <div class="theme lightgray" data-theme="lightgray" title="浅灰"></div>
+                    <div class="theme gray active" data-theme="gray" title="灰色"></div>
+                    <div class="theme dark" data-theme="dark" title="深色"></div>
+                    <div class="theme blue" data-theme="blue" title="深蓝"></div>
+                    <div class="theme purple" data-theme="purple" title="紫色"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label for="followThemeToggle">跟随 Eagle 主题</label>
+                <div class="right">
+                  <label class="toggle">
+                    <input type="checkbox" checked id="followThemeToggle">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="block-hint">
+                <p>开启后使用 Eagle 当前的外观主题，关闭后使用上面选择的主题</p>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label for="showSidebarAccountToggle">显示账号</label>
+                <div class="right">
+                  <label class="toggle">
+                    <input type="checkbox" checked id="showSidebarAccountToggle">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="block-hint">
+                <p>关闭后左侧导航栏不再显示账号卡片</p>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label>窗口大小</label>
+                <div class="right">
+                  <div class="dep-btn" id="resetWindowSize" role="button" tabindex="0">恢复默认窗口大小</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+</div>
+
+      <div class="footer" id="downloadBar">
+        <input type="search" id="urlInput" placeholder="粘贴视频链接…" spellcheck="false" autocomplete="off">
+        <div class="right">
+          <div class="button button-grey" id="pasteBtn">
+            <img class="paste-icon" src="assets/images/dark/icons/context-menu/ic-tag-paste.svg" width="16" height="16" alt="">
+            粘贴
+          </div>
+          <div class="button button-primary" id="downloadBtn">
+            <img src="assets/images/base/icons/ic-download.svg" width="16" height="16" alt="">
+            下载
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="ui-shell.js"></script>
+  <script src="dist/plugin.js"></script>
+
+</body>
+</html>

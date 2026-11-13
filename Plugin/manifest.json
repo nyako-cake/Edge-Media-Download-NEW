@@ -1,0 +1,35 @@
+{
+  "id": "e6a9bdad-237b-4f06-a4e8-67b46fed5ad6",
+  "version": "1.0.0",
+  "platform": "all",
+  "arch": "all",
+  "name": "{{manifest.app.name}}",
+  "logo": "assets/logo.png",
+  "keywords": [
+    "video",
+    "download",
+    "youtube",
+    "twitter",
+    "yt-dlp"
+  ],
+  "dependencies": [
+    "ffmpeg"
+  ],
+  "fallbackLanguage": "en",
+  "languages": [
+    "en",
+    "zh_CN"
+  ],
+  "devTools": false,
+  "main": {
+    "url": "index.html",
+    "show": false,
+    "width": 840,
+    "height": 650,
+    "minWidth": 760,
+    "minHeight": 560,
+    "resizable": true,
+    "frame": false,
+    "vibrancy": true
+  }
+}

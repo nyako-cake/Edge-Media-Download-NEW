@@ -1,0 +1,45 @@
+/* ==========================================================================
+   窗口拖动区（仅补交互，不改外观）
+   逆向 UI 里可拖动的位置是标题行：Eagle 原生偏好设置窗口把
+   .modal .modal-header .name 设为 -webkit-app-region: drag，
+   关闭 / 返回 / 置顶等按钮设为 no-drag。
+   这里的等价位置是顶部整条标题行：
+     - 左侧「媒体下载器」标题（.sidebar .title）
+     - 右侧面板标题条（.container .header）
+   其余区域一律 no-drag，保证按钮、输入框、列表照常点击。
+   ========================================================================== */
+
+/* 默认可点区域 */
+.preferences-layout,
+.sidebar,
+.sidebar .sidebar-items,
+.sidebar .sidebar-item,
+.sidebar .collapse-btn,
+.container,
+.container .content,
+.container .footer,
+.panel-content,
+.download-list,
+.download-toolbar,
+.download-toolbar .segmented,
+.download-toolbar .segment,
+.download-toolbar .toolbar-btn {
+  -webkit-app-region: no-drag;
+}
+
+/* 标题行可拖动：与逆向 UI 的 modal 标题栏一致 */
+.sidebar .title,
+.container .header {
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* 标题行里的按钮/操作区保持可点 */
+.container .header .header-actions,
+.container .header .header-actions .pin,
+.container .header .header-actions .close {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}
