@@ -1,0 +1,55 @@
+name: build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build plugin bundle
+        run: npm run build
+
+      - name: Pack Eagle plugin
+        run: |
+          node -e "
+            const AdmZip = require('adm-zip');
+            const version = require('./package.json').version;
+            const zip = new AdmZip();
+            zip.addLocalFolder('Plugin');
+            zip.writeZip('Edge-Media-Download-NEW-v' + version + '.eagleplugin');
+          "
+
+      - name: Pack Edge extension
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          cd edge-extension && zip -qr "../Edge-Media-Download-NEW-extension-v${VERSION}.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            Edge-Media-Download-NEW-v*.eagleplugin
+            Edge-Media-Download-NEW-extension-v*.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Edge-Media-Download-NEW-v*.eagleplugin
+            Edge-Media-Download-NEW-extension-v*.zip

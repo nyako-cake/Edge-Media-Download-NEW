@@ -4,6 +4,14 @@
 
 本项目是独立开源项目，代码与上游 `eagle-video-downloader` 不构成 fork、不跟随上游更新，版本从 **1.0.0** 重新起算。
 
+## 界面
+
+![插件介绍图](docs/images/intro.png)
+
+![宣传渲染图](docs/images/poster.png)
+
+![Edge 扩展弹窗](docs/images/popup.png)
+
 ## 功能
 
 **Eagle 插件（媒体下载器）**
