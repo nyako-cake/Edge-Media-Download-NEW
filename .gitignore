@@ -6,3 +6,7 @@ window-state.json
 Plugin/assets/sounds/custom.*
 .DS_Store
 Thumbs.db
+
+# 自检脚本生成的临时页面与 DOM dump
+Plugin/_*.html
+_smoke-dom.txt
