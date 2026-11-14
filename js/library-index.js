@@ -9,6 +9,7 @@
 const fs = require("fs");
 const path = require("path");
 const { getLibraryPath } = require("./library-context");
+const logger = require("./logger");
 
 const SCAN_CHUNK = 200;
 
@@ -97,6 +98,7 @@ function build(options = {}) {
     if (!warnedNoLibrary) {
       warnedNoLibrary = true;
       console.warn("[library-index] 拿不到 eagle.library.path，判重暂时不可用");
+      logger.warn("index", "拿不到资源库路径，判重不可用");
     }
     return Promise.resolve(0);
   }
@@ -105,13 +107,26 @@ function build(options = {}) {
   // 而不是像以前那样立刻拿到空的旧集合、把什么都判成「不重复」
   if (pending) return pending;
   scanning = true;
+  const startedAt = Date.now();
   pending = collectFromEagle()
     .then((keys) => {
       if (keys) {
         cache = { library: libraryPath, keys, ready: true };
+        logger.info("index", "索引重建", {
+          source: "eagle",
+          count: keys.size,
+          ms: Date.now() - startedAt
+        });
         return keys.size;
       }
-      return scanFiles(libraryPath);
+      return scanFiles(libraryPath).then((size) => {
+        logger.info("index", "索引重建", {
+          source: "files",
+          count: size,
+          ms: Date.now() - startedAt
+        });
+        return size;
+      });
     })
     .finally(() => {
       scanning = false;

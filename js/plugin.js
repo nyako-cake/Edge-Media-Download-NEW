@@ -6,6 +6,7 @@
  * 以保证 npm run build 能重现当前发布的构建。
  */
 var i18next = require("i18next");
+var logger = require("./logger");
 var {
   isYtDlpInstalled,
   downloadYtDlp,
@@ -714,6 +715,34 @@ function setupEventListeners() {
         playDownloadAddedSound(true);
     });
   }
+  const debugLogToggle = document.getElementById("debugLogToggle");
+  if (debugLogToggle) {
+    debugLogToggle.checked = logger.isEnabled();
+    debugLogToggle.addEventListener("change", (e) => {
+      logger.setEnabled(!!e.target.checked);
+    });
+  }
+  const openLogDirBtn = document.getElementById("openLogDirBtn");
+  if (openLogDirBtn) {
+    openLogDirBtn.addEventListener("click", () => {
+      try {
+        const electron = require("electron");
+        if (electron && electron.shell && typeof electron.shell.openPath === "function")
+          electron.shell.openPath(logger.dir());
+      } catch (e) {
+      }
+    });
+  }
+  const clearLogBtn = document.getElementById("clearLogBtn");
+  if (clearLogBtn) {
+    clearLogBtn.addEventListener("click", () => {
+      const removed = logger.clear();
+      clearLogBtn.textContent = removed > 0 ? "已清空 " + removed + " 个文件" : "没有日志";
+      setTimeout(() => {
+        clearLogBtn.textContent = "清空日志";
+      }, 1500);
+    });
+  }
   const customSoundName = document.getElementById("customSoundName");
   function refreshCustomSoundLabel() {
     if (!customSoundName)
@@ -1178,6 +1207,15 @@ function refreshDepsGatingState() {
   }
 }
 function initializeMainUI() {
+  let version = "";
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
+    version = manifest && manifest.version ? String(manifest.version) : "";
+  } catch (e) {
+  }
+  logger.info("plugin", "主界面初始化", { version, logEnabled: logger.isEnabled() });
   ui.showMainUI();
   ui.setupInputBar();
   restoreErrorLog();
@@ -1308,17 +1346,25 @@ async function isDuplicateDownload(url, options) {
   if (!key)
     return false;
   // 队列里只要不是失败态，同 key 一律算重复（之前只看活跃态，完成过的又会被当新任务加进来）
-  if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key))
+  if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key)) {
+    logger.info("dedupe", "队列中已有同链接", { url, key });
     return true;
+  }
   // 24 小时下载记录：不依赖库索引，既能挡住「刚下完、索引还没刷新」的窗口，
   // 也能挡住「换了资源库又被当成新链接」的重复（这条记录是全局的）
   const recent = loadRecentDownloads();
   const downloadedAt = Number(recent[key]) || 0;
-  if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL)
+  if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL) {
+    logger.info("dedupe", "24 小时内已下载过", { url, key });
     return true;
+  }
   try {
-    return await libraryIndex.hasSameLink(url);
+    const same = await libraryIndex.hasSameLink(url);
+    if (same)
+      logger.info("dedupe", "库内已有同链接", { url, key });
+    return same;
   } catch (e) {
+    logger.warn("dedupe", "库索引查询失败", { url, error: e && e.message });
     return false;
   }
 }
@@ -1383,7 +1429,7 @@ async function addToQueue(url, from, scrape, force) {
   if (force)
     clearDownloadFailed(url);
   if (scrape && isMarkedDownloadFailed(url)) {
-    console.info("[queue] previously failed, skip from scrape:", url);
+    logger.info("queue", "此前失败过，抓取时跳过", { url });
     return "skip";
   }
 
@@ -1407,7 +1453,7 @@ async function addToQueue(url, from, scrape, force) {
     if (manual)
       await ensureFreshLibraryIndex();
     if (await isDuplicateDownload(url)) {
-      console.info("[queue] duplicate skipped:", url);
+      logger.info("queue", "判定重复，未入队", { url, manual, force });
       if (manual)
         addDuplicateQueueItem(url, from);
       try {
@@ -1434,6 +1480,12 @@ async function addToQueue(url, from, scrape, force) {
   };
   downloadQueue.push(item);
   ui.appendQueueItem(item);
+  logger.info("queue", "入队", {
+    url,
+    from: from && from.screenName ? "@" + from.screenName : null,
+    manual,
+    force: !!force
+  });
   processQueue();
   playDownloadAddedSound();
   return "queued";
@@ -1552,9 +1604,11 @@ async function formatDownloadError(error, url) {
   return msg || i18next.t("download.failed");
 }
 async function executeDownload(item) {
+  const startedAt = Date.now();
   try {
     item.state = "preparing";
     ui.updateQueueItem(item.id, item);
+    logger.info("download", "开始", { url: item.url });
     const videoInfo = await downloader.getVideoInfo(item.url);
     item.title = videoInfo.title || i18next.t("error.untitledVideo");
     // 转发 / 引用转发：媒体其实来自原帖。原帖已经在库里的话直接收工，
@@ -1567,7 +1621,10 @@ async function executeDownload(item) {
         alreadyInLibrary = false;
       }
       if (alreadyInLibrary) {
-        console.info("[queue] media already in library via source:", videoInfo.sourceUrl);
+        logger.info("download", "转发原帖已在库，跳过下载", {
+          url: item.url,
+          sourceUrl: videoInfo.sourceUrl
+        });
         item.state = "completed";
         item.progress = 100;
         item.speed = "";
@@ -1639,6 +1696,12 @@ async function executeDownload(item) {
       }
     }
     clearDownloadFailed(item.url);
+    logger.info("download", "完成", {
+      url: item.url,
+      files: results.length,
+      ms: Date.now() - startedAt,
+      title: item.title
+    });
   } catch (error) {
     if (item.state === "waiting")
       return;
@@ -1647,6 +1710,11 @@ async function executeDownload(item) {
     item.error = await formatDownloadError(error, item.url);
     ui.updateQueueItem(item.id, item);
     errorLog.add({ url: item.url, title: item.title, error: item.error, from: item.from });
+    logger.error("download", "失败", {
+      url: item.url,
+      ms: Date.now() - startedAt,
+      error: String(item.error || (error && error.message) || error)
+    });
   } finally {
     activeCount--;
     processQueue();

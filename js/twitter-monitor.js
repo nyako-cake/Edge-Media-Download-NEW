@@ -11,6 +11,7 @@ const twitterAuth = require("./twitter-auth");
 const { getJson, getRaw } = require("./x-http");
 const { scopedKey } = require("./library-context");
 const twitterDm = require("./twitter-dm");
+const logger = require("./logger");
 
 const SEEN_KEY = "Edge-Media-Download-NEW.twitterSeen";
 const ENABLED_KEY = "Edge-Media-Download-NEW.twitterMonitorEnabled";
@@ -197,23 +198,33 @@ function getFetchLog() {
 
 /** 每次抓取成功落一条：开始/结束时间、各来源是否成功、本轮新增与重复数 */
 function appendFetchLog(entry) {
+  const record = {
+    startedAt: entry.startedAt || Date.now(),
+    finishedAt: entry.finishedAt || Date.now(),
+    mode: entry.mode || "poll",
+    likesOk: entry.likesOk !== false,
+    bookmarksOk: entry.bookmarksOk !== false,
+    dmOk: entry.dmOk !== false,
+    newCount: Number(entry.newCount) || 0,
+    duplicateCount: Number(entry.duplicateCount) || 0,
+    error: entry.error || null,
+  };
   try {
     const list = getFetchLog();
-    list.unshift({
-      startedAt: entry.startedAt || Date.now(),
-      finishedAt: entry.finishedAt || Date.now(),
-      mode: entry.mode || "poll",
-      likesOk: entry.likesOk !== false,
-      bookmarksOk: entry.bookmarksOk !== false,
-      dmOk: entry.dmOk !== false,
-      newCount: Number(entry.newCount) || 0,
-      duplicateCount: Number(entry.duplicateCount) || 0,
-      error: entry.error || null,
-    });
+    list.unshift(record);
     writeValue(FETCH_LOG_KEY, JSON.stringify(list.slice(0, MAX_FETCH_LOG)));
   } catch (e) {
     // 日志失败不影响抓取
   }
+  logger.info("monitor", "一轮结束", {
+    mode: record.mode,
+    newCount: record.newCount,
+    duplicateCount: record.duplicateCount,
+    likesOk: record.likesOk,
+    bookmarksOk: record.bookmarksOk,
+    dmOk: record.dmOk,
+    error: record.error
+  });
 }
 
 function setLastCheckAt(value) {

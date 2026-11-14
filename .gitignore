@@ -10,3 +10,6 @@ Thumbs.db
 # 自检脚本生成的临时页面与 DOM dump
 Plugin/_*.html
 _smoke-dom.txt
+
+# 诊断日志
+Plugin/logs/

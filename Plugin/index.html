@@ -913,6 +913,35 @@
               </div>
             </div>
           </div>
+
+          <div class="panel-block">
+            <div class="block-content">
+              <div class="block-title">诊断日志</div>
+
+              <div class="label-item">
+                <label for="debugLogToggle">记录诊断日志</label>
+                <div class="right">
+                  <label class="toggle">
+                    <input type="checkbox" id="debugLogToggle">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="block-hint">
+                <p>开启后把入队、判重命中、下载成败与抓取结果写入插件目录下的 logs 文件夹，按天分文件、保留 7 天；不记录 Cookie 与私信正文</p>
+              </div>
+
+              <div class="separator"></div>
+
+              <div class="label-item">
+                <label>日志文件</label>
+                <div class="right sound-row">
+                  <div class="sound-pick" id="openLogDirBtn" role="button" tabindex="0">打开文件夹</div>
+                  <div class="sound-pick" id="clearLogBtn" role="button" tabindex="0">清空日志</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <!-- 导入信息 -->
         <div class="panel-content" data-panel="tags" hidden>

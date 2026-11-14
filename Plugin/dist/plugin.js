@@ -2557,6 +2557,170 @@ var require_i18next = __commonJS({
   }
 });
 
+// js/logger.js
+var require_logger = __commonJS({
+  "js/logger.js"(exports2, module2) {
+    var fs = require("fs");
+    var path = require("path");
+    var ENABLED_KEY = "Edge-Media-Download-NEW.debugLog";
+    var MAX_BYTES = 2 * 1024 * 1024;
+    var KEEP_DAYS = 7;
+    var prunedToday = "";
+    function logDir() {
+      return path.join(__dirname, "..", "logs");
+    }
+    function isEnabled() {
+      try {
+        return localStorage.getItem(ENABLED_KEY) === "1";
+      } catch (e) {
+        return false;
+      }
+    }
+    function setEnabled(value) {
+      try {
+        localStorage.setItem(ENABLED_KEY, value ? "1" : "0");
+      } catch (e) {
+      }
+      if (value)
+        info("logger", "\u65E5\u5FD7\u5DF2\u5F00\u542F", { dir: logDir() });
+    }
+    function stamp(date) {
+      const d = date || /* @__PURE__ */ new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
+    }
+    function currentPath(date) {
+      return path.join(logDir(), "evd-" + stamp(date) + ".log");
+    }
+    function pruneOldFiles() {
+      const today = stamp();
+      if (prunedToday === today)
+        return;
+      prunedToday = today;
+      try {
+        const dir2 = logDir();
+        if (!fs.existsSync(dir2))
+          return;
+        const cutoff = Date.now() - KEEP_DAYS * 24 * 60 * 60 * 1e3;
+        for (const name of fs.readdirSync(dir2)) {
+          if (!/^evd-\d{8}\.log(\.1)?$/.test(name))
+            continue;
+          const full = path.join(dir2, name);
+          try {
+            if (fs.statSync(full).mtimeMs < cutoff)
+              fs.unlinkSync(full);
+          } catch (e) {
+          }
+        }
+      } catch (e) {
+      }
+    }
+    function rotateIfNeeded(file) {
+      try {
+        if (!fs.existsSync(file))
+          return;
+        const size = fs.statSync(file).size;
+        if (size < MAX_BYTES)
+          return;
+        const backup = file + ".1";
+        try {
+          if (fs.existsSync(backup))
+            fs.unlinkSync(backup);
+        } catch (e) {
+        }
+        fs.renameSync(file, backup);
+      } catch (e) {
+      }
+    }
+    function formatData(data) {
+      if (data === void 0 || data === null)
+        return "";
+      try {
+        if (typeof data === "string")
+          return data;
+        return JSON.stringify(data);
+      } catch (e) {
+        return "";
+      }
+    }
+    function write(level, tag, message, data) {
+      const text = formatData(data);
+      try {
+        console.log("[evd][" + tag + "]", message, text || "");
+      } catch (e) {
+      }
+      if (!isEnabled())
+        return;
+      try {
+        const dir2 = logDir();
+        if (!fs.existsSync(dir2))
+          fs.mkdirSync(dir2, { recursive: true });
+        pruneOldFiles();
+        const file = currentPath();
+        rotateIfNeeded(file);
+        const line = [
+          (/* @__PURE__ */ new Date()).toISOString(),
+          String(level || "info").toUpperCase().padEnd(5),
+          "[" + tag + "]",
+          String(message || ""),
+          text
+        ].join(" ");
+        fs.appendFileSync(file, line + "\n");
+      } catch (e) {
+      }
+    }
+    function info(tag, message, data) {
+      write("info", tag, message, data);
+    }
+    function warn(tag, message, data) {
+      write("warn", tag, message, data);
+    }
+    function error(tag, message, data) {
+      write("error", tag, message, data);
+    }
+    function dir() {
+      try {
+        if (!fs.existsSync(logDir()))
+          fs.mkdirSync(logDir(), { recursive: true });
+      } catch (e) {
+      }
+      return logDir();
+    }
+    function clear() {
+      try {
+        const d = logDir();
+        if (!fs.existsSync(d))
+          return 0;
+        let removed = 0;
+        for (const name of fs.readdirSync(d)) {
+          if (!/^evd-\d{8}\.log(\.1)?$/.test(name))
+            continue;
+          try {
+            fs.unlinkSync(path.join(d, name));
+            removed++;
+          } catch (e) {
+          }
+        }
+        info("logger", "\u65E5\u5FD7\u5DF2\u6E05\u7A7A", { removed });
+        return removed;
+      } catch (e) {
+        return 0;
+      }
+    }
+    module2.exports = {
+      ENABLED_KEY,
+      isEnabled,
+      setEnabled,
+      info,
+      warn,
+      error,
+      dir,
+      clear,
+      currentPath
+    };
+  }
+});
+
 // js/system-proxy.js
 var require_system_proxy = __commonJS({
   "js/system-proxy.js"(exports2, module2) {
@@ -10349,6 +10513,7 @@ var require_twitter_monitor = __commonJS({
     var { getJson: getJson2, getRaw } = require_x_http();
     var { scopedKey } = require_library_context();
     var twitterDm = require_twitter_dm();
+    var logger2 = require_logger();
     var SEEN_KEY = "Edge-Media-Download-NEW.twitterSeen";
     var ENABLED_KEY = "Edge-Media-Download-NEW.twitterMonitorEnabled";
     var INTERVAL_KEY = "Edge-Media-Download-NEW.twitterMonitorInterval";
@@ -10515,22 +10680,32 @@ var require_twitter_monitor = __commonJS({
       return readJson(FETCH_LOG_KEY, []) || [];
     }
     function appendFetchLog(entry) {
+      const record = {
+        startedAt: entry.startedAt || Date.now(),
+        finishedAt: entry.finishedAt || Date.now(),
+        mode: entry.mode || "poll",
+        likesOk: entry.likesOk !== false,
+        bookmarksOk: entry.bookmarksOk !== false,
+        dmOk: entry.dmOk !== false,
+        newCount: Number(entry.newCount) || 0,
+        duplicateCount: Number(entry.duplicateCount) || 0,
+        error: entry.error || null
+      };
       try {
         const list = getFetchLog();
-        list.unshift({
-          startedAt: entry.startedAt || Date.now(),
-          finishedAt: entry.finishedAt || Date.now(),
-          mode: entry.mode || "poll",
-          likesOk: entry.likesOk !== false,
-          bookmarksOk: entry.bookmarksOk !== false,
-          dmOk: entry.dmOk !== false,
-          newCount: Number(entry.newCount) || 0,
-          duplicateCount: Number(entry.duplicateCount) || 0,
-          error: entry.error || null
-        });
+        list.unshift(record);
         writeValue(FETCH_LOG_KEY, JSON.stringify(list.slice(0, MAX_FETCH_LOG)));
       } catch (e) {
       }
+      logger2.info("monitor", "\u4E00\u8F6E\u7ED3\u675F", {
+        mode: record.mode,
+        newCount: record.newCount,
+        duplicateCount: record.duplicateCount,
+        likesOk: record.likesOk,
+        bookmarksOk: record.bookmarksOk,
+        dmOk: record.dmOk,
+        error: record.error
+      });
     }
     function setLastCheckAt(value) {
       writeValue(LAST_CHECK_KEY, value || Date.now());
@@ -11533,6 +11708,7 @@ var require_library_index = __commonJS({
     var fs = require("fs");
     var path = require("path");
     var { getLibraryPath } = require_library_context();
+    var logger2 = require_logger();
     var keyOf = (value) => String(value || "");
     var cache = { library: "", keys: /* @__PURE__ */ new Set(), ready: false };
     var scanning = false;
@@ -11611,6 +11787,7 @@ var require_library_index = __commonJS({
         if (!warnedNoLibrary) {
           warnedNoLibrary = true;
           console.warn("[library-index] \u62FF\u4E0D\u5230 eagle.library.path\uFF0C\u5224\u91CD\u6682\u65F6\u4E0D\u53EF\u7528");
+          logger2.warn("index", "\u62FF\u4E0D\u5230\u8D44\u6E90\u5E93\u8DEF\u5F84\uFF0C\u5224\u91CD\u4E0D\u53EF\u7528");
         }
         return Promise.resolve(0);
       }
@@ -11619,12 +11796,25 @@ var require_library_index = __commonJS({
       if (pending)
         return pending;
       scanning = true;
+      const startedAt = Date.now();
       pending = collectFromEagle().then((keys) => {
         if (keys) {
           cache = { library: libraryPath, keys, ready: true };
+          logger2.info("index", "\u7D22\u5F15\u91CD\u5EFA", {
+            source: "eagle",
+            count: keys.size,
+            ms: Date.now() - startedAt
+          });
           return keys.size;
         }
-        return scanFiles(libraryPath);
+        return scanFiles(libraryPath).then((size) => {
+          logger2.info("index", "\u7D22\u5F15\u91CD\u5EFA", {
+            source: "files",
+            count: size,
+            ms: Date.now() - startedAt
+          });
+          return size;
+        });
       }).finally(() => {
         scanning = false;
         pending = null;
@@ -12969,6 +13159,7 @@ var require_zh_CN = __commonJS({
 
 // js/plugin.js
 var i18next = require_i18next();
+var logger = require_logger();
 var {
   isYtDlpInstalled,
   downloadYtDlp,
@@ -13677,6 +13868,34 @@ function setupEventListeners() {
         playDownloadAddedSound(true);
     });
   }
+  const debugLogToggle = document.getElementById("debugLogToggle");
+  if (debugLogToggle) {
+    debugLogToggle.checked = logger.isEnabled();
+    debugLogToggle.addEventListener("change", (e) => {
+      logger.setEnabled(!!e.target.checked);
+    });
+  }
+  const openLogDirBtn = document.getElementById("openLogDirBtn");
+  if (openLogDirBtn) {
+    openLogDirBtn.addEventListener("click", () => {
+      try {
+        const electron = require("electron");
+        if (electron && electron.shell && typeof electron.shell.openPath === "function")
+          electron.shell.openPath(logger.dir());
+      } catch (e) {
+      }
+    });
+  }
+  const clearLogBtn = document.getElementById("clearLogBtn");
+  if (clearLogBtn) {
+    clearLogBtn.addEventListener("click", () => {
+      const removed = logger.clear();
+      clearLogBtn.textContent = removed > 0 ? "\u5DF2\u6E05\u7A7A " + removed + " \u4E2A\u6587\u4EF6" : "\u6CA1\u6709\u65E5\u5FD7";
+      setTimeout(() => {
+        clearLogBtn.textContent = "\u6E05\u7A7A\u65E5\u5FD7";
+      }, 1500);
+    });
+  }
   const customSoundName = document.getElementById("customSoundName");
   function refreshCustomSoundLabel() {
     if (!customSoundName)
@@ -14141,6 +14360,15 @@ function refreshDepsGatingState() {
   }
 }
 function initializeMainUI() {
+  let version = "";
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
+    version = manifest && manifest.version ? String(manifest.version) : "";
+  } catch (e) {
+  }
+  logger.info("plugin", "\u4E3B\u754C\u9762\u521D\u59CB\u5316", { version, logEnabled: logger.isEnabled() });
   ui.showMainUI();
   ui.setupInputBar();
   restoreErrorLog();
@@ -14270,15 +14498,23 @@ async function isDuplicateDownload(url, options) {
   const key = downloadKey(url);
   if (!key)
     return false;
-  if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key))
+  if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key)) {
+    logger.info("dedupe", "\u961F\u5217\u4E2D\u5DF2\u6709\u540C\u94FE\u63A5", { url, key });
     return true;
+  }
   const recent = loadRecentDownloads();
   const downloadedAt = Number(recent[key]) || 0;
-  if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL)
+  if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL) {
+    logger.info("dedupe", "24 \u5C0F\u65F6\u5185\u5DF2\u4E0B\u8F7D\u8FC7", { url, key });
     return true;
+  }
   try {
-    return await libraryIndex.hasSameLink(url);
+    const same = await libraryIndex.hasSameLink(url);
+    if (same)
+      logger.info("dedupe", "\u5E93\u5185\u5DF2\u6709\u540C\u94FE\u63A5", { url, key });
+    return same;
   } catch (e) {
+    logger.warn("dedupe", "\u5E93\u7D22\u5F15\u67E5\u8BE2\u5931\u8D25", { url, error: e && e.message });
     return false;
   }
 }
@@ -14340,7 +14576,7 @@ async function addToQueue(url, from, scrape, force) {
   if (force)
     clearDownloadFailed(url);
   if (scrape && isMarkedDownloadFailed(url)) {
-    console.info("[queue] previously failed, skip from scrape:", url);
+    logger.info("queue", "\u6B64\u524D\u5931\u8D25\u8FC7\uFF0C\u6293\u53D6\u65F6\u8DF3\u8FC7", { url });
     return "skip";
   }
   const failed = downloadQueue.find((item2) => item2.state === "error" && item2.url === url);
@@ -14362,7 +14598,7 @@ async function addToQueue(url, from, scrape, force) {
     if (manual)
       await ensureFreshLibraryIndex();
     if (await isDuplicateDownload(url)) {
-      console.info("[queue] duplicate skipped:", url);
+      logger.info("queue", "\u5224\u5B9A\u91CD\u590D\uFF0C\u672A\u5165\u961F", { url, manual, force });
       if (manual)
         addDuplicateQueueItem(url, from);
       try {
@@ -14389,6 +14625,12 @@ async function addToQueue(url, from, scrape, force) {
   };
   downloadQueue.push(item);
   ui.appendQueueItem(item);
+  logger.info("queue", "\u5165\u961F", {
+    url,
+    from: from && from.screenName ? "@" + from.screenName : null,
+    manual,
+    force: !!force
+  });
   processQueue();
   playDownloadAddedSound();
   return "queued";
@@ -14507,9 +14749,11 @@ async function formatDownloadError(error, url) {
   return msg || i18next.t("download.failed");
 }
 async function executeDownload(item) {
+  const startedAt = Date.now();
   try {
     item.state = "preparing";
     ui.updateQueueItem(item.id, item);
+    logger.info("download", "\u5F00\u59CB", { url: item.url });
     const videoInfo = await downloader.getVideoInfo(item.url);
     item.title = videoInfo.title || i18next.t("error.untitledVideo");
     if (videoInfo && videoInfo.sourceUrl && videoInfo.sourceUrl !== item.url) {
@@ -14520,7 +14764,10 @@ async function executeDownload(item) {
         alreadyInLibrary = false;
       }
       if (alreadyInLibrary) {
-        console.info("[queue] media already in library via source:", videoInfo.sourceUrl);
+        logger.info("download", "\u8F6C\u53D1\u539F\u5E16\u5DF2\u5728\u5E93\uFF0C\u8DF3\u8FC7\u4E0B\u8F7D", {
+          url: item.url,
+          sourceUrl: videoInfo.sourceUrl
+        });
         item.state = "completed";
         item.progress = 100;
         item.speed = "";
@@ -14590,6 +14837,12 @@ async function executeDownload(item) {
       }
     }
     clearDownloadFailed(item.url);
+    logger.info("download", "\u5B8C\u6210", {
+      url: item.url,
+      files: results.length,
+      ms: Date.now() - startedAt,
+      title: item.title
+    });
   } catch (error) {
     if (item.state === "waiting")
       return;
@@ -14598,6 +14851,11 @@ async function executeDownload(item) {
     item.error = await formatDownloadError(error, item.url);
     ui.updateQueueItem(item.id, item);
     errorLog.add({ url: item.url, title: item.title, error: item.error, from: item.from });
+    logger.error("download", "\u5931\u8D25", {
+      url: item.url,
+      ms: Date.now() - startedAt,
+      error: String(item.error || error && error.message || error)
+    });
   } finally {
     activeCount--;
     processQueue();
