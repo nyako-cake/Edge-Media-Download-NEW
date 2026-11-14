@@ -589,15 +589,17 @@ if (content && !content.getAttribute("data-panel")) content.setAttribute("data-p
     bar.style.width = (data.progress == null ? "0" : Math.max(0, Math.min(100, data.progress))) + "%";
     var actions = row.querySelector(".item-actions");
     var retry = actions.querySelector('[data-act="retry"]');
-    if (state === "error" && !retry) {
+    var showRetry = state === "error" || state === "duplicate";
+    if (showRetry && !retry) {
       retry = document.createElement("div");
       retry.className = "link-btn";
       retry.setAttribute("data-act", "retry");
-      retry.textContent = "重试";
       actions.insertBefore(retry, actions.firstChild);
-    } else if (state !== "error" && retry) {
+    } else if (!showRetry && retry) {
       retry.parentNode.removeChild(retry);
+      retry = null;
     }
+    if (retry) retry.textContent = state === "duplicate" ? "重新下载" : "重试";
     applyFilter();
   }
 

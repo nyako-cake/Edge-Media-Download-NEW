@@ -1310,13 +1310,12 @@ async function isDuplicateDownload(url, options) {
   // 队列里只要不是失败态，同 key 一律算重复（之前只看活跃态，完成过的又会被当新任务加进来）
   if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key))
     return true;
-  // 抓取来源再看 24 小时下载记录：这条不依赖库索引，能挡住「刚下完、索引还没刷新」的窗口
-  if (options && options.scrape) {
-    const recent = loadRecentDownloads();
-    const downloadedAt = Number(recent[key]) || 0;
-    if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL)
-      return true;
-  }
+  // 24 小时下载记录：不依赖库索引，既能挡住「刚下完、索引还没刷新」的窗口，
+  // 也能挡住「换了资源库又被当成新链接」的重复（这条记录是全局的）
+  const recent = loadRecentDownloads();
+  const downloadedAt = Number(recent[key]) || 0;
+  if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL)
+    return true;
   try {
     return await libraryIndex.hasSameLink(url);
   } catch (e) {
@@ -1378,9 +1377,11 @@ function addDuplicateQueueItem(url, from) {
   return item;
 }
 
-async function addToQueue(url, from, scrape) {
+async function addToQueue(url, from, scrape, force) {
   if (!isInitialized)
     return "skip";
+  if (force)
+    clearDownloadFailed(url);
   if (scrape && isMarkedDownloadFailed(url)) {
     console.info("[queue] previously failed, skip from scrape:", url);
     return "skip";
@@ -1402,17 +1403,19 @@ async function addToQueue(url, from, scrape) {
   }
   // 手动添加（输入框 / 扩展推送）时先实时核对库索引；抓取来源沿用缓存，避免每轮重扫全库
   const manual = !scrape;
-  if (manual)
-    await ensureFreshLibraryIndex();
-  if (await isDuplicateDownload(url, { scrape })) {
-    console.info("[queue] duplicate skipped:", url);
+  if (!force) {
     if (manual)
-      addDuplicateQueueItem(url, from);
-    try {
-      document.dispatchEvent(new CustomEvent("evd:download-duplicate", { detail: { url } }));
-    } catch (e) {
+      await ensureFreshLibraryIndex();
+    if (await isDuplicateDownload(url)) {
+      console.info("[queue] duplicate skipped:", url);
+      if (manual)
+        addDuplicateQueueItem(url, from);
+      try {
+        document.dispatchEvent(new CustomEvent("evd:download-duplicate", { detail: { url } }));
+      } catch (e) {
+      }
+      return "duplicate";
     }
-    return "duplicate";
   }
   if (downloadQueue.some((entry) => ACTIVE_QUEUE_STATES.includes(entry.state) && downloadKey(entry.url) === downloadKey(url)))
     return "duplicate";
@@ -1651,7 +1654,19 @@ async function executeDownload(item) {
 }
 function retryDownload(id) {
   const item = downloadQueue.find((item2) => item2.id === id);
-  if (!item || item.state !== "error")
+  if (!item)
+    return;
+  // 重复条目：用户点「重新下载」表示要强制再下一次，绕过判重
+  if (item.state === "duplicate") {
+    const index = downloadQueue.indexOf(item);
+    if (index >= 0)
+      downloadQueue.splice(index, 1);
+    ui.removeQueueItem(item.id);
+    addToQueue(item.url, item.from, false, true).catch(() => {
+    });
+    return;
+  }
+  if (item.state !== "error")
     return;
   item.state = "waiting";
   item.progress = 0;
