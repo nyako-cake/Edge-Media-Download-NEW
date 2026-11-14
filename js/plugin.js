@@ -1550,6 +1550,15 @@ async function executeDownload(item) {
       downloader.cleanup(result.path);
     }
     recordDownloaded(item.url);
+    // 转发 / 引用转发：媒体其实来自原帖，把原帖也记一笔，
+    // 这样原帖链接再出现在点赞或抓取里时不会再导入同一批文件
+    for (const result of results) {
+      const resolvedSource = result && result.metadata && result.metadata.sourceUrl;
+      if (typeof resolvedSource === "string" && resolvedSource && resolvedSource !== item.url) {
+        recordDownloaded(resolvedSource);
+        break;
+      }
+    }
     clearDownloadFailed(item.url);
   } catch (error) {
     if (item.state === "waiting")

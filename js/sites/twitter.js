@@ -218,6 +218,42 @@ function pickPhotoUrls(tweet) {
   return urls;
 }
 
+/** 这条推文自己有没有媒体 */
+function hasOwnMedia(tweet) {
+  if (!tweet || !tweet.media) return false;
+  const videos = Array.isArray(tweet.media.videos) ? tweet.media.videos.length : 0;
+  const photos = Array.isArray(tweet.media.photos) ? tweet.media.photos.length : 0;
+  return videos > 0 || photos > 0;
+}
+
+/**
+ * 找出媒体实际挂在哪个对象上。
+ *
+ * 转发（retweet）在 fxtwitter / vxtwitter 里通常直接返回原帖，媒体就在顶层；
+ * 引用转发（quote）则不同：外层是「引用者写的话」，图片/视频挂在被引用的那条
+ * （tweet.quote）上，外层 media 为空。之前只读顶层，这类链接就会一路落到
+ * yt-dlp，最终报「没有可下载的格式」。
+ */
+function resolveMediaTweet(tweet) {
+  if (!tweet) return null;
+  if (hasOwnMedia(tweet)) return tweet;
+  const nested = [tweet.quote, tweet.quoted_status, tweet.retweeted_status, tweet.retweeted_status_result];
+  for (const item of nested) {
+    if (hasOwnMedia(item)) return item;
+  }
+  return tweet;
+}
+
+/** 推文对应的页面地址（转发/引用时指向真正持有媒体的原帖） */
+function tweetPageUrl(tweet) {
+  if (!tweet) return null;
+  if (typeof tweet.url === "string" && /^https:\/\/(?:x|twitter)\.com\//i.test(tweet.url)) return tweet.url;
+  const id = tweet.id ? String(tweet.id) : "";
+  if (!id) return null;
+  const handle = tweet.author && tweet.author.screen_name ? String(tweet.author.screen_name) : "i";
+  return "https://x.com/" + handle + "/status/" + id;
+}
+
 function buildTitle(tweet, text, statusId) {
   const cleaned = String(text || "").replace(/https:\/\/t\.co\/\S+/gi, "").replace(/\s+/g, " ").trim();
   const author = tweet && tweet.author ? tweet.author.screen_name || tweet.author.name : "";
@@ -245,6 +281,8 @@ async function customGetInfo(url) {
 
   const text = typeof tweet.text === "string" ? tweet.text : "";
   const author = tweet.author || {};
+  // 引用转发时媒体在被引用的那条上；文案与作者仍用外层（用户时间线上看到的那条）
+  const mediaTweet = resolveMediaTweet(tweet) || tweet;
   const base = {
     title: buildTitle(tweet, text, statusId),
     description: text,
@@ -256,19 +294,22 @@ async function customGetInfo(url) {
     authorId: author.id ? String(author.id) : null,
     authorScreenName: author.screen_name || null,
     authorName: author.name || null,
-    thumbnail: tweet.media && tweet.media.videos && tweet.media.videos[0] ? tweet.media.videos[0].thumbnail_url || null : null,
+    thumbnail: mediaTweet.media && mediaTweet.media.videos && mediaTweet.media.videos[0] ? mediaTweet.media.videos[0].thumbnail_url || null : null,
   };
 
-  const videos = tweet.media && Array.isArray(tweet.media.videos) ? tweet.media.videos : [];
+  const videos = mediaTweet.media && Array.isArray(mediaTweet.media.videos) ? mediaTweet.media.videos : [];
   if (videos.length) {
-    const videoUrls = pickVideoUrls(tweet);
+    const videoUrls = pickVideoUrls(mediaTweet);
+    // 视频挂在被转发/被引用的原帖上：下载目标换成原帖，否则 yt-dlp 拿这条链接解析不到格式
+    const pageUrl = tweetPageUrl(mediaTweet);
+    const retarget = pageUrl && pageUrl !== url ? { webpage_url: pageUrl, sourceUrl: pageUrl } : {};
     return Object.assign({}, base, {
       duration: Number(videos[0].duration) || 0,
       ...(videoUrls.length > 1 ? { videoUrls } : {}),
-    });
+    }, retarget);
   }
 
-  const photos = pickPhotoUrls(tweet);
+  const photos = pickPhotoUrls(mediaTweet);
   if (photos.length) {
     return Object.assign({}, base, {
       type: "image",
@@ -291,7 +332,7 @@ async function handleExecFailure({ stderr, args, onProgress, onOutput, execYtDlp
     if (!statusId || !outputTemplate) return null;
 
     const data = await fetchTweetJson(statusId);
-    const directUrl = pickBestVideoUrl(data && data.tweet);
+    const directUrl = pickBestVideoUrl(resolveMediaTweet(data && data.tweet));
     if (!directUrl) return null;
 
     await validateUrl(directUrl);

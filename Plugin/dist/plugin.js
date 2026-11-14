@@ -3625,6 +3625,36 @@ var require_twitter = __commonJS({
       }
       return urls;
     }
+    function hasOwnMedia(tweet) {
+      if (!tweet || !tweet.media)
+        return false;
+      const videos = Array.isArray(tweet.media.videos) ? tweet.media.videos.length : 0;
+      const photos = Array.isArray(tweet.media.photos) ? tweet.media.photos.length : 0;
+      return videos > 0 || photos > 0;
+    }
+    function resolveMediaTweet(tweet) {
+      if (!tweet)
+        return null;
+      if (hasOwnMedia(tweet))
+        return tweet;
+      const nested = [tweet.quote, tweet.quoted_status, tweet.retweeted_status, tweet.retweeted_status_result];
+      for (const item of nested) {
+        if (hasOwnMedia(item))
+          return item;
+      }
+      return tweet;
+    }
+    function tweetPageUrl(tweet) {
+      if (!tweet)
+        return null;
+      if (typeof tweet.url === "string" && /^https:\/\/(?:x|twitter)\.com\//i.test(tweet.url))
+        return tweet.url;
+      const id = tweet.id ? String(tweet.id) : "";
+      if (!id)
+        return null;
+      const handle = tweet.author && tweet.author.screen_name ? String(tweet.author.screen_name) : "i";
+      return "https://x.com/" + handle + "/status/" + id;
+    }
     function buildTitle(tweet, text, statusId) {
       const cleaned = String(text || "").replace(/https:\/\/t\.co\/\S+/gi, "").replace(/\s+/g, " ").trim();
       const author = tweet && tweet.author ? tweet.author.screen_name || tweet.author.name : "";
@@ -3647,6 +3677,7 @@ var require_twitter = __commonJS({
         return null;
       const text = typeof tweet.text === "string" ? tweet.text : "";
       const author = tweet.author || {};
+      const mediaTweet = resolveMediaTweet(tweet) || tweet;
       const base = {
         title: buildTitle(tweet, text, statusId),
         description: text,
@@ -3658,17 +3689,19 @@ var require_twitter = __commonJS({
         authorId: author.id ? String(author.id) : null,
         authorScreenName: author.screen_name || null,
         authorName: author.name || null,
-        thumbnail: tweet.media && tweet.media.videos && tweet.media.videos[0] ? tweet.media.videos[0].thumbnail_url || null : null
+        thumbnail: mediaTweet.media && mediaTweet.media.videos && mediaTweet.media.videos[0] ? mediaTweet.media.videos[0].thumbnail_url || null : null
       };
-      const videos = tweet.media && Array.isArray(tweet.media.videos) ? tweet.media.videos : [];
+      const videos = mediaTweet.media && Array.isArray(mediaTweet.media.videos) ? mediaTweet.media.videos : [];
       if (videos.length) {
-        const videoUrls = pickVideoUrls(tweet);
+        const videoUrls = pickVideoUrls(mediaTweet);
+        const pageUrl = tweetPageUrl(mediaTweet);
+        const retarget = pageUrl && pageUrl !== url ? { webpage_url: pageUrl, sourceUrl: pageUrl } : {};
         return Object.assign({}, base, {
           duration: Number(videos[0].duration) || 0,
           ...videoUrls.length > 1 ? { videoUrls } : {}
-        });
+        }, retarget);
       }
-      const photos = pickPhotoUrls(tweet);
+      const photos = pickPhotoUrls(mediaTweet);
       if (photos.length) {
         return Object.assign({}, base, {
           type: "image",
@@ -3690,7 +3723,7 @@ var require_twitter = __commonJS({
         if (!statusId || !outputTemplate)
           return null;
         const data = await fetchTweetJson(statusId);
-        const directUrl = pickBestVideoUrl(data && data.tweet);
+        const directUrl = pickBestVideoUrl(resolveMediaTweet(data && data.tweet));
         if (!directUrl)
           return null;
         await validateUrl(directUrl);
@@ -14472,6 +14505,13 @@ async function executeDownload(item) {
       downloader.cleanup(result.path);
     }
     recordDownloaded(item.url);
+    for (const result of results) {
+      const resolvedSource = result && result.metadata && result.metadata.sourceUrl;
+      if (typeof resolvedSource === "string" && resolvedSource && resolvedSource !== item.url) {
+        recordDownloaded(resolvedSource);
+        break;
+      }
+    }
     clearDownloadFailed(item.url);
   } catch (error) {
     if (item.state === "waiting")
