@@ -1303,10 +1303,20 @@ function saveRecentDownloads(map) {
   }
 }
 var ACTIVE_QUEUE_STATES = ["waiting", "preparing", "downloading"];
-async function isDuplicateDownload(url) {
+async function isDuplicateDownload(url, options) {
   const key = downloadKey(url);
-  if (downloadQueue.some((item) => ACTIVE_QUEUE_STATES.includes(item.state) && downloadKey(item.url) === key))
+  if (!key)
+    return false;
+  // 队列里只要不是失败态，同 key 一律算重复（之前只看活跃态，完成过的又会被当新任务加进来）
+  if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key))
     return true;
+  // 抓取来源再看 24 小时下载记录：这条不依赖库索引，能挡住「刚下完、索引还没刷新」的窗口
+  if (options && options.scrape) {
+    const recent = loadRecentDownloads();
+    const downloadedAt = Number(recent[key]) || 0;
+    if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL)
+      return true;
+  }
   try {
     return await libraryIndex.hasSameLink(url);
   } catch (e) {
@@ -1320,6 +1330,11 @@ function recordDownloaded(url) {
   saveRecentDownloads(recent);
   try {
     twitterMonitor.markTweetSeen(url);
+  } catch (e) {
+  }
+  try {
+    // 立刻记进库索引，不用等下一次 60 秒重建
+    libraryIndex.remember(url);
   } catch (e) {
   }
 }
@@ -1345,7 +1360,7 @@ async function addToQueue(url, from, scrape) {
     playDownloadAddedSound();
     return "queued";
   }
-  if (await isDuplicateDownload(url)) {
+  if (await isDuplicateDownload(url, { scrape })) {
     console.info("[queue] duplicate skipped:", url);
     try {
       document.dispatchEvent(new CustomEvent("evd:download-duplicate", { detail: { url } }));
@@ -1687,6 +1702,11 @@ function deleteDownloadItem(id) {
   downloadQueue.splice(index, 1);
   ui.removeQueueItem(id);
   errorLog.remove(url);
+  // 删掉的链接同时记进已见集合，避免下一轮抓取又把它捞回来
+  try {
+    twitterMonitor.markTweetSeen(url);
+  } catch (e) {
+  }
 }
 var WINDOW_SIZE_KEY = "evd.windowSize.v2";
 function getSavedWindowSize() {

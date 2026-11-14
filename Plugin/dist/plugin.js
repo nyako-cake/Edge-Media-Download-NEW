@@ -10769,13 +10769,13 @@ var require_twitter_monitor = __commonJS({
                 if (settled)
                   return;
                 settled = true;
-                if (status === "duplicate")
+                if (status === "duplicate" || status === "skip")
                   duplicateCount += 1;
                 resolve(status);
               };
               waiting.set(url, finish);
               setTimeout(() => finish("timeout"), 8e3);
-              document.dispatchEvent(new CustomEvent("startDownload", { detail: { url, from } }));
+              document.dispatchEvent(new CustomEvent("startDownload", { detail: { url, from, scrape: true } }));
             })
           );
         }
@@ -11018,16 +11018,20 @@ var require_twitter_monitor = __commonJS({
         dmError: dm.ok ? null : dm.error || null,
         dmItems: (dm.items || []).length
       });
+      const seen = readSeen();
       const unique = [];
       const seenIds = /* @__PURE__ */ new Set();
       if (dm.ok) {
         for (const item of dm.items.slice(0, MAX_ITEMS_PER_KIND)) {
-          if (!item.id || seenIds.has(item.id))
+          if (!item.id || seenIds.has(item.id) || seen.has(item.id))
             continue;
           seenIds.add(item.id);
           unique.push(item);
         }
       }
+      for (const item of unique)
+        seen.add(item.id);
+      writeSeen(seen);
       setDmLastCheckAt(Date.now());
       const duplicateCount = await dispatchDownloads(unique.map((item) => item.id));
       appendFetchLog({
@@ -11499,6 +11503,8 @@ var require_library_index = __commonJS({
     var keyOf = (value) => String(value || "");
     var cache = { library: "", keys: /* @__PURE__ */ new Set(), ready: false };
     var scanning = false;
+    var pending = null;
+    var warnedNoLibrary = false;
     function configure(options = {}) {
       if (typeof options.keyOf === "function")
         keyOf = options.keyOf;
@@ -11568,21 +11574,29 @@ var require_library_index = __commonJS({
     function build(options = {}) {
       const force = !!options.force;
       const libraryPath = getLibraryPath();
-      if (!libraryPath)
+      if (!libraryPath) {
+        if (!warnedNoLibrary) {
+          warnedNoLibrary = true;
+          console.warn("[library-index] \u62FF\u4E0D\u5230 eagle.library.path\uFF0C\u5224\u91CD\u6682\u65F6\u4E0D\u53EF\u7528");
+        }
         return Promise.resolve(0);
+      }
       if (!force && cache.library === libraryPath && cache.ready)
         return Promise.resolve(cache.keys.size);
-      if (scanning)
-        return Promise.resolve(cache.keys.size);
+      if (pending)
+        return pending;
       scanning = true;
-      return collectFromEagle().then((keys) => {
-        scanning = false;
+      pending = collectFromEagle().then((keys) => {
         if (keys) {
           cache = { library: libraryPath, keys, ready: true };
           return keys.size;
         }
         return scanFiles(libraryPath);
+      }).finally(() => {
+        scanning = false;
+        pending = null;
       });
+      return pending;
     }
     async function hasSameLink(url) {
       const key = keyOf(url);
@@ -11592,19 +11606,21 @@ var require_library_index = __commonJS({
       if (cache.library !== libraryPath || !cache.ready) {
         await build({ force: true });
       }
-      if (!cache.keys.has(key))
+      return cache.keys.has(key);
+    }
+    function remember(url) {
+      const key = keyOf(url);
+      if (!key)
         return false;
-      const fresh = await collectFromEagle();
-      if (fresh) {
-        cache = { library: libraryPath, keys: fresh, ready: true };
-        return fresh.has(key);
-      }
+      if (cache.ready)
+        cache.keys.add(key);
       return true;
     }
     module2.exports = {
       configure,
       build,
-      hasSameLink
+      hasSameLink,
+      remember
     };
   }
 });
@@ -14213,10 +14229,18 @@ function saveRecentDownloads(map) {
   }
 }
 var ACTIVE_QUEUE_STATES = ["waiting", "preparing", "downloading"];
-async function isDuplicateDownload(url) {
+async function isDuplicateDownload(url, options) {
   const key = downloadKey(url);
-  if (downloadQueue.some((item) => ACTIVE_QUEUE_STATES.includes(item.state) && downloadKey(item.url) === key))
+  if (!key)
+    return false;
+  if (downloadQueue.some((item) => item.state !== "error" && downloadKey(item.url) === key))
     return true;
+  if (options && options.scrape) {
+    const recent = loadRecentDownloads();
+    const downloadedAt = Number(recent[key]) || 0;
+    if (downloadedAt && Date.now() - downloadedAt < RECENT_DOWNLOAD_TTL)
+      return true;
+  }
   try {
     return await libraryIndex.hasSameLink(url);
   } catch (e) {
@@ -14230,6 +14254,10 @@ function recordDownloaded(url) {
   saveRecentDownloads(recent);
   try {
     twitterMonitor.markTweetSeen(url);
+  } catch (e) {
+  }
+  try {
+    libraryIndex.remember(url);
   } catch (e) {
   }
 }
@@ -14254,7 +14282,7 @@ async function addToQueue(url, from, scrape) {
     playDownloadAddedSound();
     return "queued";
   }
-  if (await isDuplicateDownload(url)) {
+  if (await isDuplicateDownload(url, { scrape })) {
     console.info("[queue] duplicate skipped:", url);
     try {
       document.dispatchEvent(new CustomEvent("evd:download-duplicate", { detail: { url } }));
@@ -14596,6 +14624,10 @@ function deleteDownloadItem(id) {
   downloadQueue.splice(index, 1);
   ui.removeQueueItem(id);
   errorLog.remove(url);
+  try {
+    twitterMonitor.markTweetSeen(url);
+  } catch (e) {
+  }
 }
 var WINDOW_SIZE_KEY = "evd.windowSize.v2";
 function saveWindowSize() {

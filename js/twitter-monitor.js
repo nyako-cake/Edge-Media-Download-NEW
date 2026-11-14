@@ -494,13 +494,15 @@ async function dispatchDownloads(entries) {
           const finish = (status) => {
             if (settled) return;
             settled = true;
-            if (status === "duplicate") duplicateCount += 1;
+            if (status === "duplicate" || status === "skip") duplicateCount += 1;
             resolve(status);
           };
           waiting.set(url, finish);
           // 入队失败或没有回执时也给个兜底，避免一直挂着
           setTimeout(() => finish("timeout"), 8000);
-          document.dispatchEvent(new CustomEvent("startDownload", { detail: { url, from } }));
+          // scrape: true 让入队端识别出「这是抓取来的」，
+          // 已被标记为失败的链接就直接跳过，不再每轮重试
+          document.dispatchEvent(new CustomEvent("startDownload", { detail: { url, from, scrape: true } }));
         })
       );
     }
@@ -776,15 +778,20 @@ async function fetchDmCycle(options = {}) {
     dmItems: (dm.items || []).length,
   });
 
+  // 与点赞/收藏共用 seen：抓过的链接不再每轮重投。
+  // 之前这里刻意不看 seen，结果是已删除或已失败的推文每 2 分钟被重新入队一次。
+  const seen = readSeen();
   const unique = [];
   const seenIds = new Set();
   if (dm.ok) {
     for (const item of dm.items.slice(0, MAX_ITEMS_PER_KIND)) {
-      if (!item.id || seenIds.has(item.id)) continue;
+      if (!item.id || seenIds.has(item.id) || seen.has(item.id)) continue;
       seenIds.add(item.id);
       unique.push(item);
     }
   }
+  for (const item of unique) seen.add(item.id);
+  writeSeen(seen);
   setDmLastCheckAt(Date.now());
 
   const duplicateCount = await dispatchDownloads(unique.map((item) => item.id));

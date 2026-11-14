@@ -15,6 +15,8 @@ const SCAN_CHUNK = 200;
 let keyOf = (value) => String(value || "");
 let cache = { library: "", keys: new Set(), ready: false };
 let scanning = false;
+let pending = null;
+let warnedNoLibrary = false;
 
 /** 插件启动时注入与 downloadKey 一致的归一化函数 */
 function configure(options = {}) {
@@ -91,22 +93,34 @@ function scanFiles(libraryPath) {
 function build(options = {}) {
   const force = !!options.force;
   const libraryPath = getLibraryPath();
-  if (!libraryPath) return Promise.resolve(0);
-  if (!force && cache.library === libraryPath && cache.ready) return Promise.resolve(cache.keys.size);
-  if (scanning) return Promise.resolve(cache.keys.size);
-  scanning = true;
-
-  return collectFromEagle().then((keys) => {
-    scanning = false;
-    if (keys) {
-      cache = { library: libraryPath, keys, ready: true };
-      return keys.size;
+  if (!libraryPath) {
+    if (!warnedNoLibrary) {
+      warnedNoLibrary = true;
+      console.warn("[library-index] 拿不到 eagle.library.path，判重暂时不可用");
     }
-    return scanFiles(libraryPath);
-  });
+    return Promise.resolve(0);
+  }
+  if (!force && cache.library === libraryPath && cache.ready) return Promise.resolve(cache.keys.size);
+  // 正在扫描时返回同一个 promise：调用方会等到结果，
+  // 而不是像以前那样立刻拿到空的旧集合、把什么都判成「不重复」
+  if (pending) return pending;
+  scanning = true;
+  pending = collectFromEagle()
+    .then((keys) => {
+      if (keys) {
+        cache = { library: libraryPath, keys, ready: true };
+        return keys.size;
+      }
+      return scanFiles(libraryPath);
+    })
+    .finally(() => {
+      scanning = false;
+      pending = null;
+    });
+  return pending;
 }
 
-/** 本库是否已有同一链接；命中后一律用 Eagle 实时索引复核一次（删掉的文件立刻不再算重复） */
+/** 本库是否已有同一链接 */
 async function hasSameLink(url) {
   const key = keyOf(url);
   if (!key) return false;
@@ -114,12 +128,16 @@ async function hasSameLink(url) {
   if (cache.library !== libraryPath || !cache.ready) {
     await build({ force: true });
   }
-  if (!cache.keys.has(key)) return false;
-  const fresh = await collectFromEagle();
-  if (fresh) {
-    cache = { library: libraryPath, keys: fresh, ready: true };
-    return fresh.has(key);
-  }
+  // 只查缓存：以前命中后还要再拉一遍全库复核，大库下每条链接都要好几秒，
+  // 一轮几百条会把抓取拖垮。库内删除改由 60 秒一次的定时重建反映。
+  return cache.keys.has(key);
+}
+
+/** 下载成功后立刻把链接记进索引，避免等下一次重建的空窗期重复入队 */
+function remember(url) {
+  const key = keyOf(url);
+  if (!key) return false;
+  if (cache.ready) cache.keys.add(key);
   return true;
 }
 
@@ -127,4 +145,5 @@ module.exports = {
   configure,
   build,
   hasSameLink,
+  remember,
 };
