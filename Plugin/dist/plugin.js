@@ -11912,6 +11912,8 @@ var require_ui_replica = __commonJS({
         return "\u5DF2\u5B8C\u6210";
       if (state === "error")
         return "\u4E0B\u8F7D\u5931\u8D25";
+      if (state === "duplicate")
+        return "\u91CD\u590D\u4E0B\u8F7D";
       if (item.phase === "merge" || item.phase === "convert") {
         const label = item.phase === "merge" ? "\u5408\u5E76\u4E2D" : "\u8F6C\u7801\u4E2D";
         return typeof item.processingPercent === "number" ? `${label} ${Math.round(item.processingPercent)}%` : `${label}\u2026`;
@@ -11929,6 +11931,8 @@ var require_ui_replica = __commonJS({
     function queueEtaText(item) {
       if (item.state === "error")
         return friendlyError(item.error || "");
+      if (item.state === "duplicate")
+        return "\u5E93\u5185\u5DF2\u6709\u540C\u94FE\u63A5\u6587\u4EF6";
       if (item.eta)
         return `\u5269\u4F59 ${item.eta}`;
       return "";
@@ -14294,6 +14298,44 @@ function recordDownloaded(url) {
   } catch (e) {
   }
 }
+var lastLibraryForceAt = 0;
+async function ensureFreshLibraryIndex() {
+  const now = Date.now();
+  if (now - lastLibraryForceAt < 8e3)
+    return;
+  lastLibraryForceAt = now;
+  try {
+    await libraryIndex.build({ force: true });
+  } catch (e) {
+  }
+}
+function addDuplicateQueueItem(url, from) {
+  const key = downloadKey(url);
+  const existing = downloadQueue.find((entry) => entry.state === "duplicate" && downloadKey(entry.url) === key);
+  if (existing) {
+    existing.title = url;
+    if (from)
+      existing.from = from;
+    ui.updateQueueItem(existing.id, existing);
+    return existing;
+  }
+  const item = {
+    id: ++queueIdCounter,
+    url,
+    title: url,
+    state: "duplicate",
+    progress: 0,
+    speed: "",
+    eta: "",
+    phase: null,
+    processingPercent: void 0,
+    error: "",
+    from: from && (from.screenName || from.name || from.id) ? from : null
+  };
+  downloadQueue.push(item);
+  ui.appendQueueItem(item);
+  return item;
+}
 async function addToQueue(url, from, scrape) {
   if (!isInitialized)
     return "skip";
@@ -14315,8 +14357,13 @@ async function addToQueue(url, from, scrape) {
     playDownloadAddedSound();
     return "queued";
   }
+  const manual = !scrape;
+  if (manual)
+    await ensureFreshLibraryIndex();
   if (await isDuplicateDownload(url, { scrape })) {
     console.info("[queue] duplicate skipped:", url);
+    if (manual)
+      addDuplicateQueueItem(url, from);
     try {
       document.dispatchEvent(new CustomEvent("evd:download-duplicate", { detail: { url } }));
     } catch (e) {

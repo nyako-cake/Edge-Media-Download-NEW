@@ -577,6 +577,7 @@ if (content && !content.getAttribute("data-panel")) content.setAttribute("data-p
     row.setAttribute("data-state", state);
     row.classList.toggle("completed", state === "completed");
     row.classList.toggle("error", state === "error");
+    row.classList.toggle("duplicate", state === "duplicate");
     row.classList.toggle("indeterminate", state === "preparing");
     if (typeof data.title === "string" && data.title) {
       row.querySelector(".item-title").textContent = data.title;

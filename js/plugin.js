@@ -1338,6 +1338,46 @@ function recordDownloaded(url) {
   } catch (e) {
   }
 }
+var lastLibraryForceAt = 0;
+/** 手动添加链接前强制刷新一次库索引，保证「同链接已在库里」能立刻查出来 */
+async function ensureFreshLibraryIndex() {
+  const now = Date.now();
+  if (now - lastLibraryForceAt < 8000) return;
+  lastLibraryForceAt = now;
+  try {
+    await libraryIndex.build({ force: true });
+  } catch (e) {
+  }
+}
+
+/** 把命中的链接以「重复下载」列进下载列表，抓取来源不列，避免每轮刷屏 */
+function addDuplicateQueueItem(url, from) {
+  const key = downloadKey(url);
+  const existing = downloadQueue.find((entry) => entry.state === "duplicate" && downloadKey(entry.url) === key);
+  if (existing) {
+    existing.title = url;
+    if (from) existing.from = from;
+    ui.updateQueueItem(existing.id, existing);
+    return existing;
+  }
+  const item = {
+    id: ++queueIdCounter,
+    url,
+    title: url,
+    state: "duplicate",
+    progress: 0,
+    speed: "",
+    eta: "",
+    phase: null,
+    processingPercent: void 0,
+    error: "",
+    from: from && (from.screenName || from.name || from.id) ? from : null
+  };
+  downloadQueue.push(item);
+  ui.appendQueueItem(item);
+  return item;
+}
+
 async function addToQueue(url, from, scrape) {
   if (!isInitialized)
     return "skip";
@@ -1360,8 +1400,14 @@ async function addToQueue(url, from, scrape) {
     playDownloadAddedSound();
     return "queued";
   }
+  // 手动添加（输入框 / 扩展推送）时先实时核对库索引；抓取来源沿用缓存，避免每轮重扫全库
+  const manual = !scrape;
+  if (manual)
+    await ensureFreshLibraryIndex();
   if (await isDuplicateDownload(url, { scrape })) {
     console.info("[queue] duplicate skipped:", url);
+    if (manual)
+      addDuplicateQueueItem(url, from);
     try {
       document.dispatchEvent(new CustomEvent("evd:download-duplicate", { detail: { url } }));
     } catch (e) {

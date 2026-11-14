@@ -191,6 +191,7 @@ function queueStatusText(item) {
   if (state === "preparing") return "正在获取媒体信息…";
   if (state === "completed") return "已完成";
   if (state === "error") return "下载失败";
+  if (state === "duplicate") return "重复下载";
   if (item.phase === "merge" || item.phase === "convert") {
     const label = item.phase === "merge" ? "合并中" : "转码中";
     return typeof item.processingPercent === "number"
@@ -208,6 +209,7 @@ function queueStatusText(item) {
 
 function queueEtaText(item) {
   if (item.state === "error") return friendlyError(item.error || "");
+  if (item.state === "duplicate") return "库内已有同链接文件";
   if (item.eta) return `剩余 ${item.eta}`;
   return "";
 }
