@@ -14463,6 +14463,34 @@ async function executeDownload(item) {
     ui.updateQueueItem(item.id, item);
     const videoInfo = await downloader.getVideoInfo(item.url);
     item.title = videoInfo.title || i18next.t("error.untitledVideo");
+    if (videoInfo && videoInfo.sourceUrl && videoInfo.sourceUrl !== item.url) {
+      let alreadyInLibrary = false;
+      try {
+        alreadyInLibrary = await libraryIndex.hasSameLink(videoInfo.sourceUrl);
+      } catch (e) {
+        alreadyInLibrary = false;
+      }
+      if (alreadyInLibrary) {
+        console.info("[queue] media already in library via source:", videoInfo.sourceUrl);
+        item.state = "completed";
+        item.progress = 100;
+        item.speed = "";
+        item.eta = "";
+        item.phase = null;
+        item.processingPercent = void 0;
+        ui.updateQueueItem(item.id, item);
+        recordDownloaded(item.url);
+        recordDownloaded(videoInfo.sourceUrl);
+        clearDownloadFailed(item.url);
+        try {
+          document.dispatchEvent(new CustomEvent("evd:download-duplicate", {
+            detail: { url: item.url, sourceUrl: videoInfo.sourceUrl }
+          }));
+        } catch (e) {
+        }
+        return;
+      }
+    }
     item.state = "downloading";
     item.phase = null;
     item.processingPercent = void 0;
